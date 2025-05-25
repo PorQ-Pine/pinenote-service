@@ -18,3 +18,7 @@ pub mod ioctls {
         pub mod rockchip_ebc;
     }
 }
+
+pub mod sysfs {
+    pub mod attribute;
+}
