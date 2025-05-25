@@ -1,0 +1,13 @@
+[package]
+name = "pinenote-service"
+version = "0.1.0"
+edition = "2024"
+description = "Management dervice for Pine64's PineNote device"
+repository = "https://https://git.sr.ht/~phantomas/pinenote-service"
+license = "GPL-3.0-or-later"
+authors = [
+    "phantomas <phantomas@phantomas.xyz"
+]
+
+[dependencies]
+nix = { version = ">=0.27.0", features=["ioctl"] }
