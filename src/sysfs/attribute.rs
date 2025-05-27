@@ -1,8 +1,7 @@
 //! Generic sysfs attributes
 
 use std::{
-    fs::OpenOptions,
-    io::{self, Read, Write}, marker::PhantomData, str::FromStr,
+    fs::OpenOptions, io::{self, Read, Write}, marker::PhantomData, str::FromStr
 };
 
 use thiserror::Error;
@@ -18,6 +17,8 @@ pub enum Error {
 /// Base trait for attribues
 pub trait AttributeBase {
     fn path(&self) -> &str;
+
+    fn from_path(path: impl Into<String>) -> Self;
 }
 
 /// Read raw value from sysfs attribute file.
@@ -68,6 +69,11 @@ pub struct ReadOnly<T> where T: RawRead {
 
 impl<T: RawRead> AttributeBase for ReadOnly<T> {
     fn path(&self) -> &str { self.attribute.path() }
+    fn from_path(path: impl Into<String>) -> Self {
+        Self {
+            attribute: T::from_path(path)
+        }
+    }
 }
 
 impl<T: RawRead> RawRead for ReadOnly<T> {
@@ -97,6 +103,12 @@ pub struct WriteOnly<T> where T: RawWrite {
 
 impl<T: RawWrite> AttributeBase for WriteOnly<T> {
     fn path(&self) -> &str { self.attribute.path() }
+
+    fn from_path(path: impl Into<String>) -> Self {
+        Self {
+            attribute: T::from_path(path)
+        }
+    }
 }
 
 impl<T: RawWrite> RawWrite for WriteOnly<T> {
@@ -124,13 +136,19 @@ impl<T: RawWrite> From<T> for WriteOnly<T> {
 /// These are handled as a special case because boolean can both be represented
 /// as "Y/N" or "0/1" by the kernel, so a special parsing is needed.
 ///
-struct Boolean {
+pub struct Boolean {
     pub path: String
 }
 
 impl AttributeBase for Boolean {
     fn path(&self) -> &str {
         self.path.as_str()
+    }
+
+    fn from_path(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into()
+        }
     }
 }
 
@@ -160,7 +178,7 @@ impl TypedWrite for Boolean {
 }
 
 /// Attribute with arbitrary implementation
-struct Generic<T> {
+pub struct Generic<T> {
     pub path: String,
     _phantom: PhantomData<T>
 }
@@ -168,6 +186,13 @@ struct Generic<T> {
 impl<T> AttributeBase for Generic<T> {
     fn path(&self) -> &str {
         self.path.as_str()
+    }
+
+    fn from_path(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            _phantom: Default::default()
+        }
     }
 }
 
@@ -194,7 +219,12 @@ where T: ToString {
 }
 
 #[allow(dead_code)]
-type RBoolean = ReadOnly<Boolean>;
+pub type RBoolean = ReadOnly<Boolean>;
 
 #[allow(dead_code)]
-type WBoolean = WriteOnly<Boolean>;
+pub type WBoolean = WriteOnly<Boolean>;
+
+pub type RGeneric<T> = ReadOnly<Generic<T>>;
+
+pub type Int32 = Generic<i32>;
+pub type RInt32 = ReadOnly<Generic<i32>>;

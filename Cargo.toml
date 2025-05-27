@@ -11,4 +11,5 @@ authors = [
 
 [dependencies]
 nix = { version = ">=0.27.0", features=["ioctl"] }
-thiserror = { version = ">=2.0.12" }
+thiserror = ">=2.0.12"
+num_enum = ">=0.7.3"

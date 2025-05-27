@@ -1,3 +1,12 @@
+/// Driver support
+pub mod drivers {
+    pub mod drm {
+        pub mod rockchip_ebc;
+    }
+
+    pub use drm::rockchip_ebc;
+}
+
 pub mod ioctls {
     pub mod drm {
         pub const IOCTL_MAGIC: u8 = b'd';
@@ -19,6 +28,11 @@ pub mod ioctls {
     }
 }
 
+pub mod types {
+    pub mod rockchip_ebc;
+}
+
 pub mod sysfs {
     pub mod attribute;
 }
+
