@@ -2,7 +2,7 @@
 
 use std::{
     fs::OpenOptions,
-    io::{self, Read, Write},
+    io::{self, Read, Write}, marker::PhantomData, str::FromStr,
 };
 
 use thiserror::Error;
@@ -156,6 +156,40 @@ impl TypedWrite for Boolean {
 
     fn write(&self, value: Self::Repr) -> Result<(), Error> {
         self.write_raw(format!("{}", value as u8))
+    }
+}
+
+/// Attribute with arbitrary implementation
+struct Generic<T> {
+    pub path: String,
+    _phantom: PhantomData<T>
+}
+
+impl<T> AttributeBase for Generic<T> {
+    fn path(&self) -> &str {
+        self.path.as_str()
+    }
+}
+
+impl<T> RawRead for Generic<T> {}
+impl<T> RawWrite for Generic<T> {}
+
+impl<T> TypedRead for Generic<T>
+where T: FromStr {
+    type Repr = T;
+
+    fn read(&self) -> Result<Self::Repr, Error> {
+        self.read_raw()?.parse().map_err(|_| {
+            Error::ConvError
+        })
+    }
+}
+
+impl<T> TypedWrite for Generic<T>
+where T: ToString {
+    type Repr = T;
+    fn write(&self, value: Self::Repr) -> Result<(), Error> {
+        self.write_raw(value.to_string())
     }
 }
 
