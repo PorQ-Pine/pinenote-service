@@ -11,8 +11,8 @@ use thiserror::Error;
 pub enum Error {
     #[error(transparent)]
     IoError(#[from] io::Error),
-    #[error("Error while parsing value")]
-    ParseError
+    #[error("Error while converting value")]
+    ConvError
 }
 
 /// Base trait for attribues
@@ -90,7 +90,7 @@ impl<T: RawRead> From<T> for ReadOnly<T> {
     }
 }
 
-/// Wrapper to restrict an attribute from using any of the read* functions.
+/// Wrapper restricting an attribute from using any of the read* functions.
 pub struct WriteOnly<T> where T: RawWrite {
     attribute: T,
 }
@@ -136,6 +136,7 @@ impl AttributeBase for Boolean {
 
 impl RawRead for Boolean {}
 impl RawWrite for Boolean {}
+
 impl TypedRead for Boolean {
     type Repr = bool;
 
@@ -145,10 +146,11 @@ impl TypedRead for Boolean {
         match repr.trim() {
             "Y" | "1" => Ok(true),
             "N" | "0" => Ok(false),
-            _ => Err(Error::ParseError)
+            _ => Err(Error::ConvError)
         }
     }
 }
+
 impl TypedWrite for Boolean {
     type Repr = bool;
 

@@ -15,6 +15,7 @@ const RECT_HINTS_NR: u8 = drm::COMMAND_BASE + 0x03;
 const MODE_NR: u8 = drm::COMMAND_BASE + 0x04;
 const ZERO_WAVEFORM_NR: u8 = drm::COMMAND_BASE + 0x05;
 
+/// [global_refresh_iowr] parameter type
 #[repr(C)]
 pub struct GlobalRefresh {
     /// Set to 1 to trigger a screen refresh
@@ -25,6 +26,7 @@ ioctl_readwrite!(
     global_refresh_iowr,
     drm::IOCTL_MAGIC, GLOBAL_REFRESH_NR, GlobalRefresh);
 
+/// [off_screen_iow] parameter type
 #[repr(C)]
 pub struct OffScreen {
     pub _info: u64,
@@ -35,6 +37,7 @@ ioctl_write_ptr!(
     off_screen_iow,
     drm::IOCTL_MAGIC, OFF_SCREEN_NR, OffScreen);
 
+/// [extract_fbs_iowr] parameter type
 #[repr(C)]
 pub struct ExtractFBs {
     pub ptr_packed_inner_outer_nextprev: u64,
@@ -57,6 +60,7 @@ pub struct RectHint {
     pub rect: drm::Rect
 }
 
+/// [rect_hints_iow] parameter type.
 #[repr(C)]
 pub struct RectHints {
     /// Whether to apply or ignore default hints
@@ -64,7 +68,7 @@ pub struct RectHints {
     /// Hint to apply to non-covered pixels
     pub default_hints: u8,
     pub _padding: [u8; 2],
-    /// Number of rectangle [ptr_rect_hints] points to
+    /// Number of rectangle [RectHints::ptr_rect_hints] points to
     pub num_rects: u32,
     /// Pointer to an array of [RectHint]
     pub ptr_rect_hints: u64,
@@ -74,6 +78,7 @@ ioctl_write_ptr!(
     rect_hints_iow,
     drm::IOCTL_MAGIC, RECT_HINTS_NR, RectHints);
 
+/// [mode_iowr] parameter type
 #[repr(C)]
 pub struct Mode {
 	pub set_driver_mode: u8,
