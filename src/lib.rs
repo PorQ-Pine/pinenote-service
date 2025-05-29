@@ -8,6 +8,10 @@ pub mod drivers {
 }
 
 pub mod ioctls {
+    use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt, path::Path};
+    use nix::libc;
+    use thiserror::Error;
+
     pub mod drm {
         pub const IOCTL_MAGIC: u8 = b'd';
         pub const COMMAND_BASE: u8 = 0x40;
@@ -25,6 +29,28 @@ pub mod ioctls {
         }
 
         pub mod rockchip_ebc;
+    }
+
+    pub use drm::rockchip_ebc;
+
+
+    #[derive(Error, Debug)]
+    #[error("Could not open device at '{path}'")]
+    pub struct OpenError {
+        path: String,
+        source: std::io::Error
+    }
+
+    pub fn open_device(path: impl AsRef<Path>) -> Result<std::fs::File, OpenError> {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&path)
+            .map_err(|source|  {
+                let path = path.as_ref().to_string_lossy().to_string();
+                OpenError { path, source }
+            })
     }
 }
 

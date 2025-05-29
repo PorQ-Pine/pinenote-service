@@ -1,6 +1,21 @@
 //! rockchip_ebc driver support
 
-use crate::{sysfs::attribute::{AttributeBase, Boolean, Int32, RGeneric, RInt32, TypedRead}, types::rockchip_ebc::{DitheringMethod, Hint}};
+use std::os::fd::AsRawFd;
+
+use thiserror::Error;
+
+use crate::{ioctls::{self, OpenError}, sysfs::{self, attribute::{AttributeBase, Boolean, Int32, RGeneric, RInt32, TypedRead}}, types::rockchip_ebc::{DitheringMethod, Hint}};
+
+
+#[derive(Error, Debug)]
+pub enum DriverError {
+    #[error(transparent)]
+    OpenDevice(#[from] OpenError),
+    #[error(transparent)]
+    IotclError(#[from] nix::Error),
+    #[error(transparent)]
+    SysFs(#[from] sysfs::attribute::Error)
+}
 
 /// Control structure for the RockchipEbc driver
 pub struct RockchipEbc {
@@ -23,10 +38,7 @@ pub struct RockchipEbc {
 
 impl RockchipEbc {
     const SYSFS_PATH_BASE: &str = "/sys/module/rockchip_ebc/parameters";
-
-    fn make_param<T: AttributeBase>(name: &str) -> T {
-        T::from_path(format!("{}/{}", Self::SYSFS_PATH_BASE, name))
-    }
+    const DEV_PATH: &str = "/dev/dri/by-path/platform-fdec0000.ebc-card";
 
     pub fn new() -> Self {
         Self {
@@ -57,4 +69,23 @@ impl RockchipEbc {
     pub fn dithering_method(&self) -> Result<DitheringMethod, crate::sysfs::attribute::Error> {
         self.dithering_method.read()
     }
+
+    /// Trigger a full screen refresh
+    pub fn global_refresh(&self) -> Result<(), DriverError> {
+        let file = ioctls::open_device(Self::DEV_PATH)?;
+        let mut data = ioctls::rockchip_ebc::GlobalRefresh {
+            trigger_global_refresh: 1
+        };
+
+        unsafe {
+            ioctls::rockchip_ebc::global_refresh_iowr(file.as_raw_fd(), &mut data)?;
+        }
+
+        Ok(())
+    }
+
+    fn make_param<T: AttributeBase>(name: &str) -> T {
+        T::from_path(format!("{}/{}", Self::SYSFS_PATH_BASE, name))
+    }
+
 }
