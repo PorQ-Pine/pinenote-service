@@ -56,6 +56,8 @@ pub mod ioctls {
 
 pub mod types {
     pub mod rockchip_ebc;
+    pub mod rect;
+    pub use rect::Rect;
 }
 
 pub mod sysfs {
