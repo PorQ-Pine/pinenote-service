@@ -58,6 +58,8 @@ pub mod types {
     pub mod rockchip_ebc;
     pub mod rect;
     pub use rect::Rect;
+
+    pub mod ztree;
 }
 
 pub mod sysfs {

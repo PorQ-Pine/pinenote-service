@@ -43,8 +43,8 @@ impl Rect {
     }
 }
 
-/// Rectagle, possibly split to mask part of it.
-#[derive(Clone, Debug, PartialEq)]
+/// Rectangle, possibly split to mask part of it.
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct SplitRect(Vec<Rect>);
 
 impl SplitRect {
