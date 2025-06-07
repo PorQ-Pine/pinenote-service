@@ -5,6 +5,8 @@ use std::{num::ParseIntError, str::FromStr};
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
 
+use super::Rect;
+
 #[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy)]
 #[repr(u8)]
 pub enum HintBitDepth {
@@ -37,6 +39,7 @@ pub enum Error {
 
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Hint {
     repr: u8
 }
@@ -145,4 +148,10 @@ impl FromStr for DclkSelect {
         let repr: i32 = s.parse()?;
         Self::try_from_primitive(repr).map_err(Error::from)
     }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct RectHint {
+    pub rect: Rect,
+    pub hint: Hint,
 }
