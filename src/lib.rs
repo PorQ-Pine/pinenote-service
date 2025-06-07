@@ -66,3 +66,4 @@ pub mod sysfs {
     pub mod attribute;
 }
 
+pub mod pixel_manager;

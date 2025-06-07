@@ -41,7 +41,7 @@ pub enum Error {
 
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Hint {
     repr: u8
 }
@@ -54,7 +54,7 @@ impl Hint {
     const REDRAW_SHIFT : u8 = 7;
     const REDRAW_MASK : u8 = 1 << Self::REDRAW_SHIFT;
 
-    pub fn new(bit_depth: HintBitDepth, convert_mode: HintConvertMode, redraw: bool) -> Self {
+    pub const fn new(bit_depth: HintBitDepth, convert_mode: HintConvertMode, redraw: bool) -> Self {
         let bit_depth = (bit_depth as u8) << Self::BIT_DEPTH_SHIFT;
         let convert_mode = (convert_mode as u8) << Self::CONVERT_SHIFT;
         let redraw = (redraw as u8) << Self::REDRAW_SHIFT;
