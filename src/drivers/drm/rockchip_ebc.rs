@@ -4,8 +4,7 @@ use std::os::fd::AsRawFd;
 
 use thiserror::Error;
 
-use crate::{ioctls::{self, OpenError}, sysfs::{self, attribute::{AttributeBase, Boolean, Int32, RGeneric, RInt32, TypedRead}}, types::rockchip_ebc::{DitheringMethod, Hint}};
-
+use crate::{ioctls::{self, OpenError}, pixel_manager::ComputedHints, sysfs::{self, attribute::{AttributeBase, Boolean, Int32, RGeneric, RInt32, TypedRead}}, types::{rockchip_ebc::{DitheringMethod, Hint}, Rect}};
 
 #[derive(Error, Debug)]
 pub enum DriverError {
@@ -18,6 +17,7 @@ pub enum DriverError {
 }
 
 /// Control structure for the RockchipEbc driver
+#[allow(unused)]
 pub struct RockchipEbc {
     default_hint: RGeneric<Hint>,
     redraw_delay: RInt32,
@@ -39,6 +39,7 @@ pub struct RockchipEbc {
 impl RockchipEbc {
     const SYSFS_PATH_BASE: &str = "/sys/module/rockchip_ebc/parameters";
     const DEV_PATH: &str = "/dev/dri/by-path/platform-fdec0000.ebc-card";
+    const SCREEN_RECT: Rect = Rect::new(0, 0, 1872, 1404);
 
     pub fn new() -> Self {
         Self {
@@ -84,8 +85,40 @@ impl RockchipEbc {
         Ok(())
     }
 
+    pub fn upload_rect_hints(&self, rect_hints: ComputedHints) -> Result<(), DriverError> {
+        let file = ioctls::open_device(Self::DEV_PATH)?;
+        let ComputedHints { default_hint, rect_hints } = rect_hints;
+
+        let rect_hints: Vec<ioctls::rockchip_ebc::RectHint> = rect_hints.into_iter()
+            .map(Into::into)
+            .collect();
+
+        let data = ioctls::rockchip_ebc::RectHints {
+            set_default_hints: default_hint.is_some() as u8,
+            default_hints: default_hint.map(|h| h.into()).unwrap_or_default(),
+            _padding: Default::default(),
+            num_rects: rect_hints.len() as u32,
+            ptr_rect_hints: rect_hints.as_ptr() as u64
+        };
+
+        unsafe {
+            ioctls::rockchip_ebc::rect_hints_iow(file.as_raw_fd(), &data)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn screen_area(&self) -> Result<Rect, DriverError> {
+        Ok(Self::SCREEN_RECT.clone())
+    }
+
     fn make_param<T: AttributeBase>(name: &str) -> T {
         T::from_path(format!("{}/{}", Self::SYSFS_PATH_BASE, name))
     }
+}
 
+impl Default for RockchipEbc {
+    fn default() -> Self {
+        Self::new()
+    }
 }

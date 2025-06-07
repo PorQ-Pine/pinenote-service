@@ -5,6 +5,8 @@ use std::{num::ParseIntError, str::FromStr};
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
 
+use crate::ioctls::{self, drm};
+
 use super::Rect;
 
 #[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy)]
@@ -116,6 +118,12 @@ impl FromStr for Hint {
     }
 }
 
+impl From<Hint> for u8 {
+    fn from(value: Hint) -> Self {
+        value.repr
+    }
+}
+
 #[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy)]
 #[repr(u8)]
 pub enum DitheringMethod {
@@ -154,4 +162,19 @@ impl FromStr for DclkSelect {
 pub struct RectHint {
     pub rect: Rect,
     pub hint: Hint,
+}
+
+impl From<RectHint> for ioctls::rockchip_ebc::RectHint {
+    fn from(value: RectHint) -> Self {
+        let RectHint { rect, hint } = value;
+
+        let Rect { x1, y1, x2, y2 } = rect;
+        let rect = drm::Rect { x1, y1, x2, y2 };
+
+        Self {
+            pixel_hints: hint.into(),
+            _padding: Default::default(),
+            rect
+        }
+    }
 }
