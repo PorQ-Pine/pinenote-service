@@ -1,30 +1,93 @@
 use anyhow::Result;
+use nix::libc::pid_t;
 use tokio::{signal, sync::mpsc};
 
-use pinenote_service::drivers::rockchip_ebc::RockchipEbc;
+use pinenote_service::{drivers::rockchip_ebc::RockchipEbc, pixel_manager::{Application, PixelManager, PixelManagerError, Window}, types::{rockchip_ebc::Hint, Rect}};
 use zbus::{connection, interface};
 
 struct EbcCtl {
-    driver: RockchipEbc
+    driver: RockchipEbc,
+    pixel_manager: PixelManager
 }
 
-enum EbcCommand {
+pub enum EbcCommand {
     GlobalRefresh,
+    AddApplication{
+        app_id: String,
+        pid: pid_t,
+        ret: mpsc::Sender<String>
+
+    },
+    RemoveApplication(String),
+    AddWindow {
+        app_key: String,
+        title: String,
+        area: Rect,
+        hint: Option<Hint>,
+        visible: bool,
+        z_index: i32,
+        ret: mpsc::Sender<Result<String, PixelManagerError>>
+    },
+    RemoveWindow(String)
 }
 
 impl EbcCtl {
-    pub fn new() -> EbcCtl {
-        EbcCtl { driver: RockchipEbc::new() }
+    pub fn new() -> Result<EbcCtl> {
+        let driver = RockchipEbc::new();
+
+        let default_hint = driver.default_hint()?;
+        let screen_area = driver.screen_area()?;
+
+        Ok(EbcCtl {
+            driver: RockchipEbc::new(),
+            pixel_manager: PixelManager::new(default_hint, screen_area)
+        })
     }
 
-    pub async fn serve(&self, mut rx: mpsc::Receiver<EbcCommand>) {
-        while let Some(cmd) = rx.recv().await {
+    fn recompute_hints(&self) {
+        let res = self.pixel_manager.compute_hints().map_err(anyhow::Error::new)
+            .and_then(|hints| self.driver.upload_rect_hints(hints).map_err(anyhow::Error::new));
 
+        if let Err(e) = res {
+            eprintln!("{:#}", e);
+        }
+    }
+
+    pub async fn serve(&mut self, mut rx: mpsc::Receiver<EbcCommand>) {
+        while let Some(cmd) = rx.recv().await {
             match cmd {
                 EbcCommand::GlobalRefresh => {
                     if let Err(e) = self.driver.global_refresh() {
                         eprintln!("{e}");
                     }
+                },
+                EbcCommand::AddApplication { app_id, pid, ret } => {
+                    let app_key = self.pixel_manager.app_add(Application::new(app_id, pid));
+                    if let Err(e) = ret.send(app_key).await {
+                        eprintln!("Error: Could not send response to AddApplication: {e}");
+                    }
+                },
+                EbcCommand::RemoveApplication(app_id) => {
+                    self.pixel_manager.app_remove(&app_id);
+                    self.recompute_hints();
+                },
+                EbcCommand::AddWindow { app_key, title, area, hint, visible, z_index, ret } => {
+                    let win_key = self.pixel_manager.window_add(Window::new(app_key, title, area, hint, visible, z_index));
+
+                    if let Err(ref e) = win_key {
+                        eprintln!("{e}");
+                    }
+
+                    if let Err(e) = ret.send(win_key).await {
+                        eprintln!("Error: Could not send response to AddWindow: {e}");
+                    }
+
+                    self.recompute_hints();
+                },
+                EbcCommand::RemoveWindow(win_id) => {
+                    self.pixel_manager.window_remove(win_id);
+
+                    self.recompute_hints();
                 }
             };
         }
@@ -58,7 +121,7 @@ impl PineNoteCtl {
 #[tokio::main]
 async fn main() -> Result<()> {
     let (tx, rx) = mpsc::channel(100);
-    let ebc = EbcCtl::new();
+    let mut ebc = EbcCtl::new()?;
 
     tokio::spawn(async move { ebc.serve(rx).await; });
 
