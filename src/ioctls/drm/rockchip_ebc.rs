@@ -8,6 +8,7 @@ use nix::{
 };
 use crate::ioctls::drm;
 
+#[allow(clippy::identity_op)]
 const GLOBAL_REFRESH_NR: u8 = drm::COMMAND_BASE + 0x00;
 const OFF_SCREEN_NR: u8 = drm::COMMAND_BASE + 0x01;
 const EXTRACT_FB_NR: u8 = drm::COMMAND_BASE + 0x02;
