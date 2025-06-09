@@ -1,6 +1,6 @@
 use anyhow::Result;
 use nix::libc::pid_t;
-use tokio::{signal, sync::mpsc};
+use tokio::{signal, sync::{mpsc, oneshot}};
 
 use pinenote_service::{drivers::rockchip_ebc::RockchipEbc, pixel_manager::{Application, PixelManager, PixelManagerError, Window}, types::{rockchip_ebc::Hint, Rect}};
 use zbus::{connection, interface};
@@ -12,12 +12,7 @@ struct EbcCtl {
 
 pub enum EbcCommand {
     GlobalRefresh,
-    AddApplication{
-        app_id: String,
-        pid: pid_t,
-        ret: mpsc::Sender<String>
-
-    },
+    AddApplication(pid_t, oneshot::Sender<String>),
     RemoveApplication(String),
     AddWindow {
         app_key: String,
@@ -26,7 +21,7 @@ pub enum EbcCommand {
         hint: Option<Hint>,
         visible: bool,
         z_index: i32,
-        ret: mpsc::Sender<Result<String, PixelManagerError>>
+        ret: oneshot::Sender<Result<String, PixelManagerError>>
     },
     RemoveWindow(String)
 }
@@ -61,9 +56,9 @@ impl EbcCtl {
                         eprintln!("{e}");
                     }
                 },
-                EbcCommand::AddApplication { app_id, pid, ret } => {
-                    let app_key = self.pixel_manager.app_add(Application::new(app_id, pid));
-                    if let Err(e) = ret.send(app_key).await {
+                EbcCommand::AddApplication(pid, ret) => {
+                    let app_key = self.pixel_manager.app_add(Application::new("", pid));
+                    if let Err(e) = ret.send(app_key) {
                         eprintln!("Error: Could not send response to AddApplication: {e}");
                     }
                 },
@@ -78,8 +73,8 @@ impl EbcCtl {
                         eprintln!("{e}");
                     }
 
-                    if let Err(e) = ret.send(win_key).await {
-                        eprintln!("Error: Could not send response to AddWindow: {e}");
+                    if let Err(_) = ret.send(win_key) {
+                        eprintln!("Error: Could not send response to AddWindow");
                     }
 
                     self.recompute_hints();
