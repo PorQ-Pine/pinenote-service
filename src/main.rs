@@ -10,6 +10,10 @@ use pinenote_service::{
 };
 use zbus::{connection, interface};
 
+pub mod bridge {
+    pub mod sway;
+}
+
 struct EbcCtl {
     driver: RockchipEbc,
     pixel_manager: PixelManager
@@ -205,6 +209,10 @@ async fn main() -> Result<()> {
         .serve_at("/org/pinenote/PineNoteCtl", pinenote_ctl)?
         .build()
         .await?;
+
+    let mut sway_bridge = bridge::sway::SwayBridge::new().await?;
+
+    tokio::spawn(async move { let _ = sway_bridge.run(tx.clone()).await; });
 
     match signal::ctrl_c().await {
         Ok(()) => {},
