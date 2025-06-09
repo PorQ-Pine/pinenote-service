@@ -30,7 +30,7 @@ pub trait RawRead: AttributeBase {
 
         file.read_to_string(&mut str)?;
 
-        Ok(str)
+        Ok(str.trim().to_string())
     }
 }
 
