@@ -13,6 +13,10 @@ impl Rect {
         Self { x1, y1, x2, y2 }
     }
 
+    pub const fn from_xywh(x: i32, y: i32, w: i32, h:i32) -> Self {
+        Self::new(x, y, x + w, y + h)
+    }
+
     pub fn intersect(&self, rhs: &Self) -> bool {
         self.x1 <= rhs.x2 &&
             self.x2 >= rhs.x1 &&
