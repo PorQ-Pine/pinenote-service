@@ -13,6 +13,7 @@ use crate::EbcCommand;
 struct SwayWindow {
     id: i64,
     pid: pid_t,
+    title: String,
     area: Rect,
     visible: bool,
     floating: bool,
@@ -21,6 +22,7 @@ struct SwayWindow {
 }
 
 struct SwayWindowDiff {
+    title: Option<String>,
     area: Option<Rect>,
     visible: Option<bool>,
     z_index: Option<i32>,
@@ -29,9 +31,10 @@ struct SwayWindowDiff {
 impl SwayWindow {
     fn diff(&self, other: &Self) -> Option<SwayWindowDiff> {
         if self != other {
-            let &Self { ref area, visible, z_index, .. } = other;
+            let &Self { ref title, ref area, visible, z_index, .. } = other;
 
             Some(SwayWindowDiff {
+                title: if &self.title != title { Some(title.clone()) } else { None },
                 area: if &self.area != area { Some(area.clone()) } else { None },
                 visible: if self.visible != visible { Some(visible) } else { None },
                 z_index: if self.z_index != z_index { Some(z_index) } else { None }
@@ -56,10 +59,13 @@ impl TryFrom<&Node> for SwayWindow {
             y -= node.deco_rect.height
         }
 
+        let title = node.name.as_deref().unwrap_or("NO_TITLE").to_owned();
+
         let area = Rect::from_xywh(x, y, width, height);
 
         Ok(Self {
             id: node.id,
+            title,
             area,
             visible,
             floating: node.node_type == NodeType::FloatingCon,
@@ -170,7 +176,6 @@ impl SwayBridge {
     }
 
     /// Add a new window
-    // TODO: Manage Window Title
     async fn add_window(&mut self, win: SwayWindow, tx: &mut Sender<EbcCommand>) -> Result<()> {
         let (rtx, rx) = oneshot::channel::<String>();
 
@@ -179,7 +184,7 @@ impl SwayBridge {
 
         let cmd = EbcCommand::AddWindow {
             app_key,
-            title: "".into(),
+            title: win.title.clone(),
             area: win.area.clone(),
             hint: None,
             visible: win.visible,
@@ -199,15 +204,14 @@ impl SwayBridge {
 
     /// Update Window
     ///
-    // TODO: Manage Window Title
     // TODO: Manage Window Hint
     async fn update_window(&mut self, up_win: SwayWindow, tx: &mut Sender<EbcCommand>) -> Result<()> {
         let &mut (ref win_key,ref mut win) = self.window_meta.get_mut(&up_win.id).unwrap();
 
-        if let Some(SwayWindowDiff { area, visible, z_index, .. }) = win.diff(&up_win) {
+        if let Some(SwayWindowDiff { title, area, visible, z_index, .. }) = win.diff(&up_win) {
             tx.send(EbcCommand::UpdateWindow {
                 win_key: win_key.clone(),
-                title: None,
+                title,
                 area,
                 hint: None,
                 visible,
