@@ -9,7 +9,7 @@ use tokio::sync::{mpsc::Sender, oneshot};
 
 use crate::EbcCommand;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct SwayWindow {
     id: i64,
     pid: pid_t,
@@ -27,14 +27,16 @@ struct SwayWindowDiff {
 }
 
 impl SwayWindow {
-    fn diff(&self, other: &Self) -> SwayWindowDiff {
-        let &Self { ref area, visible, z_index, .. } = other;
+    fn diff(&self, other: &Self) -> Option<SwayWindowDiff> {
+        if self != other {
+            let &Self { ref area, visible, z_index, .. } = other;
 
-        SwayWindowDiff {
-            area: if &self.area != area { Some(area.clone()) } else { None },
-            visible: if self.visible != visible { Some(visible) } else { None },
-            z_index: if self.z_index != z_index { Some(z_index) } else { None }
-        }
+            Some(SwayWindowDiff {
+                area: if &self.area != area { Some(area.clone()) } else { None },
+                visible: if self.visible != visible { Some(visible) } else { None },
+                z_index: if self.z_index != z_index { Some(z_index) } else { None }
+            })
+        } else { None }
     }
 }
 
@@ -202,18 +204,19 @@ impl SwayBridge {
     async fn update_window(&mut self, up_win: SwayWindow, tx: &mut Sender<EbcCommand>) -> Result<()> {
         let &mut (ref win_key,ref mut win) = self.window_meta.get_mut(&up_win.id).unwrap();
 
-        let SwayWindowDiff { area, visible, z_index, .. } = win.diff(&up_win);
+        if let Some(SwayWindowDiff { area, visible, z_index, .. }) = win.diff(&up_win) {
+            tx.send(EbcCommand::UpdateWindow {
+                win_key: win_key.clone(),
+                title: None,
+                area,
+                hint: None,
+                visible,
+                z_index
+            }).await.context("Failed to send update for window '{win_key}'")?;
 
-        tx.send(EbcCommand::UpdateWindow {
-            win_key: win_key.clone(),
-            title: None,
-            area,
-            hint: None,
-            visible,
-            z_index
-        }).await.context("Failed to send update for window '{win_key}'")?;
+            self.window_meta.entry(up_win.id).and_modify(|e| e.1 = up_win);
+        }
 
-        self.window_meta.entry(up_win.id).and_modify(|e| e.1 = up_win);
 
         Ok(())
     }
