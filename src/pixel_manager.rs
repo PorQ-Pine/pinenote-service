@@ -11,8 +11,8 @@
 //! default_hint will be used instead.
 //!
 //! A [Window] represent what's being rendered. Every Window is linked to an Application, has a
-//! unique identifier and a screen_area. A window can additionally have a hint, in which case it
-//! will be used instead of the per-application one, or the global hint if both are unset.
+//! unique identifier and an rectangular area. A window can additionally have a hint, in which case
+//! it will be used instead of the per-application one, or the global hint if both are unset.
 //!
 //! # Render Hint computation
 //!
@@ -47,7 +47,7 @@
 //!
 //! - C doesn't overlap with B, so B will be sent as-is.
 //! - C overlap with A, and fully cover the bottom region, so A rectangle can be reduced.
-//! - B overlap with A, but part of A can be both on the left and right, so A cannot be reduced,
+//! - B overlap with A, but part of A can be both on the left and right, so A cannot be reduced
 //!
 //! The final dimension for A is computed as {0,0,5,2}.
 //!
@@ -118,18 +118,23 @@ impl Application {
     }
 }
 
+#[derive(Clone)]
+pub struct WindowData {
+    pub title: String,
+    pub area: Rect,
+    pub hint: Option<Hint>,
+    pub visible: bool,
+    pub z_index: i32,
+}
+
 /// Represent an on-screen window
 ///
-/// TODO: Implement subsurfaces
-/// TODO: Implement per title search
+// TODO: Implement subsurfaces
+// TODO: Implement per title search
 pub struct Window {
     uid: String,
     app_key: String,
-    _title: String,
-    screen_area: Rect,
-    hint: Option<Hint>,
-    visible: bool,
-    z_index: i32,
+    pub data: WindowData
     //sub_surface: Vec<Surface>
 }
 
@@ -137,31 +142,37 @@ impl Window {
     pub fn new(
         app_key: impl Into<String>,
         title: impl Into<String>,
-        screen_area: Rect,
+        area: Rect,
         hint: Option<Hint>,
         visible: bool,
         z_index: i32,
     ) -> Self {
         let uid = uuid::Uuid::new_v4().to_string();
         let app_key = app_key.into();
-        let _title = title.into();
+        let title = title.into();
 
         Self {
             uid,
             app_key,
-            _title,
-            screen_area,
-            hint,
-            visible,
-            z_index,
+            data: WindowData {
+                title,
+                area,
+                hint,
+                visible,
+                z_index,
+            }
         }
     }
 
     pub fn zsurface(&self, screen_area: &Rect) -> Option<ZSurface> {
-        if self.visible {
-            self.screen_area.intersection(screen_area)
-                .map(|rect| ZSurface::new(self.z_index, self.uid.clone(), rect))
+        if self.data.visible {
+            self.data.area.intersection(screen_area)
+                .map(|rect| ZSurface::new(self.data.z_index, self.uid.clone(), rect))
         } else { None }
+    }
+
+    pub fn update(&mut self, data: WindowData) {
+        self.data = data
     }
 }
 
@@ -302,10 +313,10 @@ impl PixelManager {
         self.applications.entry(app_key).and_modify(|a| a.window_remove(&win_uid));
     }
 
-    pub fn window_update(&mut self, mut update: Window) -> Result<(), PixelManagerError> {
-        let window = self.window_mut(&update.uid)?;
+    pub fn window_update(&mut self, win_key: &String, data: WindowData) -> Result<(), PixelManagerError> {
+        let window = self.window_mut(win_key)?;
 
-        std::mem::swap(window, &mut update);
+        window.update(data);
 
         Ok(())
     }
@@ -314,7 +325,7 @@ impl PixelManager {
     pub fn window_set_hint(&mut self, win_key: &String, hint: Hint) -> Result<(), PixelManagerError> {
         let win = self.window_mut(win_key)?;
 
-        win.hint = Some(hint);
+        win.data.hint = Some(hint);
 
         Ok(())
     }
@@ -323,19 +334,19 @@ impl PixelManager {
     pub fn window_unset_hint(&mut self, win_key: &String) -> Result<(), PixelManagerError> {
         let win = self.window_mut(win_key)?;
 
-        win.hint = None;
+        win.data.hint = None;
 
         Ok(())
     }
 
     pub fn window_hint(&self, win_key: &String) -> Result<Option<Hint>, PixelManagerError> {
-        self.window(win_key).map(|w| w.hint)
+        self.window(win_key).map(|w| w.data.hint)
     }
 
     pub fn window_hint_fallback(&self, win_key: &String) -> Result<Hint, PixelManagerError> {
         let win = self.window(win_key)?;
 
-        if let Some(hint) = win.hint {
+        if let Some(hint) = win.data.hint {
             Ok(hint)
         } else {
             let app = self.app(&win.app_key)?;
