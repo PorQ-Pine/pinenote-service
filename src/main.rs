@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use anyhow::{anyhow, Context, Result};
 use nix::libc::pid_t;
 use tokio::{signal, sync::{mpsc, oneshot}};
@@ -34,7 +36,8 @@ pub enum EbcCommand {
         visible: Option<bool>,
         z_index: Option<i32>
     },
-    RemoveWindow(String)
+    RemoveWindow(String),
+    Dump(String)
 }
 
 impl EbcCommand {
@@ -47,7 +50,8 @@ impl EbcCommand {
             RemoveApplication(_) => "RemoveApplication",
             AddWindow { .. } => "AddWindow",
             UpdateWindow { .. } => "UpdateWindow",
-            RemoveWindow(_) => "RemoveWindow"
+            RemoveWindow(_) => "RemoveWindow",
+            Dump(_) => "Dump"
         }
     }
 }
@@ -69,6 +73,13 @@ impl EbcCtl {
         let hints = self.pixel_manager.compute_hints().context("Failed to compute new hints")?;
 
         self.driver.upload_rect_hints(hints).context("Failed to upload hints")
+    }
+
+    fn dump(&self, mut output: impl Write) {
+        let _ = writeln!(output, "=========== EBC_CTL DUMP ===========");
+        let _ = writeln!(output, "PixelManager: ");
+        let _ = writeln!(output, "{:#?}", self.pixel_manager);
+        let _ = writeln!(output, "=========== ! EBC_CTL DUMP ===========");
     }
 
     async fn dispatch(&mut self, cmd: EbcCommand) -> Result<()> {
@@ -112,6 +123,19 @@ impl EbcCtl {
                 self.pixel_manager.window_remove(win_id);
                 self.recompute_hints()?;
             }
+            EbcCommand::Dump(path) => {
+                if path == "-" {
+                    self.dump(std::io::stderr())
+                } else if let Ok(f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                {
+                    self.dump(f);
+                } else {
+                    self.dump(std::io::stderr());
+                }
+            }
         };
 
         Ok(())
@@ -150,7 +174,16 @@ impl PineNoteCtl {
 impl PineNoteCtl {
     async fn global_refresh(&self) -> Result<(), zbus::fdo::Error> {
         if let Err(e) = self.ebc_tx.send(EbcCommand::GlobalRefresh).await {
-            eprintln!("Failed to trigger global refresh: {e}");
+            eprintln!("Failed to trigger global refresh: {e:?}");
+            Err(zbus::fdo::Error::Failed("InternalError".into()))
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn dump(&self, path: String) -> Result<(), zbus::fdo::Error> {
+        if let Err(e) = self.ebc_tx.send(EbcCommand::Dump(path)).await {
+            eprintln!("Failed to send Dump command {e:?}");
             Err(zbus::fdo::Error::Failed("InternalError".into()))
         } else {
             Ok(())

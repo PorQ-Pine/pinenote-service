@@ -74,6 +74,7 @@ use crate::types::{rockchip_ebc::{Hint, RectHint}, ztree::{ZSurface, ZTree}, Rec
 ///
 /// This struct represent a running process, and hold the default configuration for any of the
 /// process windows for which it wasn't overridden.
+#[derive(Debug)]
 pub struct Application {
     app_id: String,
     pid: pid_t,
@@ -118,7 +119,7 @@ impl Application {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WindowData {
     pub title: String,
     pub area: Rect,
@@ -131,6 +132,7 @@ pub struct WindowData {
 ///
 // TODO: Implement subsurfaces
 // TODO: Implement per title search
+#[derive(Debug)]
 pub struct Window {
     uid: String,
     app_key: String,
@@ -199,6 +201,7 @@ impl ComputedHints {
 }
 
 /// Manage per pixel hints
+#[derive(Debug)]
 pub struct PixelManager{
     /// Default Hints to use for uncovered pixels
     pub default_hint: Hint,
