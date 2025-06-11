@@ -1,13 +1,16 @@
 use std::collections::{HashMap, HashSet};
 
+use nalgebra::Matrix3;
 use nix::libc::pid_t;
-use pinenote_service::types::{rockchip_ebc::{Hint, HintBitDepth, HintConvertMode}, Rect};
+use pinenote_service::types::{rockchip_ebc::Hint, Rect};
 use swayipc_async::{Connection, Event, EventStream, EventType, Node, NodeBorder, NodeType, Rect as SwayRect};
 use futures_lite::stream::StreamExt;
 use anyhow::{bail, Context, Result};
 use tokio::sync::{mpsc::Sender, oneshot};
 
 use crate::EbcCommand;
+
+mod utils;
 
 #[derive(Debug, PartialEq)]
 struct SwayWindow {
@@ -48,25 +51,6 @@ impl SwayWindow {
 
 pub struct SwayWindowError;
 
-fn parse_hint(input: &str) -> Option<Hint> {
-    let mut bitdepth: Option<HintBitDepth> = None;
-    let mut dither = HintConvertMode::Threshold;
-    let mut redraw = false;
-
-    input.split("|").for_each(|h| match h {
-        "Y4" => { bitdepth = Some(HintBitDepth::Y4) },
-        "Y2" => { bitdepth = Some(HintBitDepth::Y2) },
-        "Y1" => { bitdepth = Some(HintBitDepth::Y1) },
-        "T" => { dither = HintConvertMode::Threshold },
-        "D" => { dither = HintConvertMode::Dither },
-        "R" => { redraw = true },
-        "r" => { redraw = false }
-        _ => {}
-    });
-
-    bitdepth.map(|bd| Hint::new(bd, dither, redraw))
-}
-
 impl TryFrom<&Node> for SwayWindow {
     type Error = SwayWindowError;
 
@@ -87,7 +71,7 @@ impl TryFrom<&Node> for SwayWindow {
 
         let hint = node.marks.iter()
             .find_map(|m| if m.starts_with("ebchint:") || m.starts_with("_ebchint:") {
-                m.split(':').skip(2).next().and_then(|s| parse_hint(s))
+                m.split(':').nth(2).and_then(utils::parse_hint)
             } else {
                 None
             }
@@ -108,48 +92,10 @@ impl TryFrom<&Node> for SwayWindow {
     }
 }
 
-struct StandardNodeIterator<'a> {
-    queue: Vec<&'a Node>,
-}
-
-impl<'a> Iterator for StandardNodeIterator<'a> {
-    type Item = &'a Node;
-
-    fn next(&mut self) -> Option<&'a Node> {
-        match self.queue.pop() {
-            None => None,
-            Some(node) => {
-                self.queue.extend(node.nodes.iter());
-                Some(node)
-            }
-        }
-    }
-}
-
-fn iter_standard<'a>(node: &'a Node) -> StandardNodeIterator<'a> {
-    StandardNodeIterator { queue: vec![node] }
-}
-
-fn get_all_windows_and_app(workspace: &Node) -> (HashSet<pid_t>,Vec<SwayWindow>) {
-    let mut floating_idx = 1;
-
-    workspace.floating_nodes.iter()
-        .chain(iter_standard(workspace))
-        .filter_map(|n| SwayWindow::try_from(n).ok().map(|n| {
-            if n.floating {
-                let z_index = floating_idx;
-                floating_idx += 1;
-
-                SwayWindow { z_index, ..n }
-            } else { n }
-        }))
-        .map(|w| (w.pid, w))
-        .collect()
-}
-
 pub struct SwayBridge {
     swayipc: Connection,
     swayevents: EventStream,
+    transform: Matrix3<f64>,
     app_meta: HashMap<pid_t, (String, HashSet<i64>)>,
     window_meta: HashMap<i64, (String, SwayWindow)>
 }
@@ -158,8 +104,11 @@ impl SwayBridge {
     const OUTPUT_NAME: &str = "DPI-1";
 
     pub async fn new() -> Result<Self> {
-        let swayipc = Connection::new().await
+        let mut swayipc = Connection::new().await
             .context("Failed to connect to Sway IPC")?;
+
+        let transform = utils::get_output(&mut swayipc, Self::OUTPUT_NAME).await
+            .and_then(|o| utils::output_to_transform(&o))?;
 
         let events = vec![
             EventType::Output,
@@ -174,6 +123,7 @@ impl SwayBridge {
         Ok(Self {
             swayipc,
             swayevents,
+            transform,
             app_meta: Default::default(),
             window_meta: Default::default(),
         })
@@ -234,7 +184,6 @@ impl SwayBridge {
     }
 
     /// Update Window
-    ///
     async fn update_window(&mut self, up_win: SwayWindow, tx: &mut Sender<EbcCommand>) -> Result<()> {
         let &mut (ref win_key,ref mut win) = self.window_meta.get_mut(&up_win.id).unwrap();
 
@@ -280,7 +229,7 @@ impl SwayBridge {
             bail!("No focused workspace for output '{}", Self::OUTPUT_NAME)
         };
 
-        let (pid_set, windows) = get_all_windows_and_app(workspace);
+        let (pid_set, windows) = utils::get_all_windows_and_app(workspace, &self.transform);
 
         let stale_pid: Vec<pid_t> = self.app_meta.keys()
             .filter(|k| !pid_set.contains(k))
@@ -339,6 +288,13 @@ impl SwayBridge {
                         process_tree = true;
                     },
                     Event::Output(_) => {
+                        match utils::get_output(&mut self.swayipc, Self::OUTPUT_NAME).await
+                            .and_then(|o| utils::output_to_transform(&o)) {
+                            Ok(t) => {
+                                self.transform = t;
+                            }
+                            Err(e) => { eprintln!("{e:#?}"); }
+                        }
                         process_tree = true;
                     },
                     Event::Workspace(_) => {
