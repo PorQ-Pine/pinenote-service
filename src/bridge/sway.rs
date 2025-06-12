@@ -59,10 +59,11 @@ impl TryFrom<&Node> for SwayWindow {
         let Some(visible) = node.visible else { return Err(SwayWindowError) };
         let Some(pid) = node.pid else { return Err(SwayWindowError) };
 
-        let SwayRect { x, mut y, width, height, .. } = node.rect;
+        let SwayRect { x, mut y, width, mut height, .. } = node.rect;
 
         if node.node_type == NodeType::FloatingCon && node.border == NodeBorder::Normal {
-            y -= node.deco_rect.height
+            y -= node.deco_rect.height;
+            height += node.deco_rect.height;
         }
 
         let title = node.name.as_deref().unwrap_or("NO_TITLE").to_owned();
