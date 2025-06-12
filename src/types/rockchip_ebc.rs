@@ -1,6 +1,6 @@
 //! Type safe representation of rockchip_ebc parameters
 
-use std::{num::ParseIntError, str::FromStr};
+use std::{fmt::Display, num::ParseIntError, str::FromStr};
 
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
@@ -121,6 +121,24 @@ impl FromStr for Hint {
 impl From<Hint> for u8 {
     fn from(value: Hint) -> Self {
         value.repr
+    }
+}
+
+impl Display for Hint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let depth = match self.bit_depth() {
+            HintBitDepth::Y4 => "Y4",
+            HintBitDepth::Y2 => "Y2",
+            HintBitDepth::Y1 => "Y1"
+        };
+
+        let convert = match self.convert_mode() {
+            HintConvertMode::Threshold => "T",
+            HintConvertMode::Dither => "D",
+        };
+
+        let redraw = if self.redraw() { "R" } else { "r" };
+        write!(f, "{depth}|{convert}|{redraw}")
     }
 }
 
