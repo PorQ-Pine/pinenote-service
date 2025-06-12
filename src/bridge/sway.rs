@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, time::Duration};
 
 use nalgebra::Matrix3;
 use nix::libc::pid_t;
@@ -277,33 +277,41 @@ impl SwayBridge {
                 process_tree = false;
             }
 
-            if let Some(evt) = self.swayevents.next().await {
-                let event = evt?;
+            match tokio::time::timeout(Duration::from_millis(100), self.swayevents.next()).await {
+                Err(_) => {process_tree = true}
+                Ok(Some(evt)) => {
+                    let event = evt?;
 
-                match event {
-                    Event::Shutdown(_) => { break },
-                    Event::Window(_) => {
-                        process_tree = true;
-                    },
-                    Event::Output(_) => {
-                        match utils::get_output(&mut self.swayipc, Self::OUTPUT_NAME).await
-                            .and_then(|o| utils::output_to_transform(&o)) {
-                            Ok(t) => {
-                                self.transform = t;
-                            }
-                            Err(e) => {
-                                self.transform = Matrix3::identity();
-                                eprintln!("{e:#?}");
-                            }
+                    match event {
+                        Event::Shutdown(_) => { break },
+                        Event::Window(_) => {
+                            process_tree = true;
+                        },
+                        Event::Output(_) => {
+                            match utils::get_output(&mut self.swayipc, Self::OUTPUT_NAME).await
+                                .and_then(|o| utils::output_to_transform(&o)) {
+                                    Ok(t) => {
+                                        self.transform = t;
+                                    }
+                                    Err(e) => {
+                                        self.transform = Matrix3::identity();
+                                        eprintln!("{e:#?}");
+                                    }
+                                }
+                            process_tree = true;
+                        },
+                        Event::Workspace(_) => {
+                            process_tree = true;
                         }
-                        process_tree = true;
-                    },
-                    Event::Workspace(_) => {
-                        process_tree = true;
+                        _ => {}
                     }
-                    _ => {}
+                },
+                Ok(None) => {
+                    eprintln!("SwayIPC EventStream is done");
+                    break
                 }
             }
+
         }
 
         eprintln!("Implement proper exit");
