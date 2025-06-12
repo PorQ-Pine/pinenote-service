@@ -76,10 +76,6 @@ impl EbcCtl {
     fn recompute_hints(&self) -> Result<()> {
         let hints = self.pixel_manager.compute_hints().context("Failed to compute new hints")?;
 
-        eprintln!("======== EBC SCREEN_RECT =======");
-        eprintln!("{:#?}", hints);
-        eprintln!("======== ! EBC SCREEN_RECT =======");
-
         self.driver.upload_rect_hints(hints).context("Failed to upload hints")
     }
 
@@ -153,15 +149,11 @@ impl EbcCtl {
         while let Some(cmd) = rx.recv().await {
             let ctx = cmd.get_context_str();
 
-            eprintln!("======== EBC_CTL -> {ctx} =========");
-
             if let Err(e) = self.dispatch(cmd).await
                 .with_context(|| format!("While handling {ctx}"))
             {
                 eprintln!("{e:?}")
             }
-
-            eprintln!("======== !EBC_CTL -> {ctx} =========");
         }
     }
 }
