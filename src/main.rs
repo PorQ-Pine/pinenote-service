@@ -1,8 +1,11 @@
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use nix::libc::pid_t;
 use tokio::{signal, sync::{mpsc, oneshot}};
-
-use pinenote_service::{drivers::rockchip_ebc::RockchipEbc, pixel_manager::{Application, PixelManager, PixelManagerError, Window}, types::{rockchip_ebc::Hint, Rect}};
+use pinenote_service::{
+    drivers::rockchip_ebc::RockchipEbc,
+    pixel_manager::{Application, PixelManager, Window},
+    types::{rockchip_ebc::Hint, Rect}
+};
 use zbus::{connection, interface};
 
 struct EbcCtl {
@@ -21,9 +24,23 @@ pub enum EbcCommand {
         hint: Option<Hint>,
         visible: bool,
         z_index: i32,
-        ret: oneshot::Sender<Result<String, PixelManagerError>>
+        ret: oneshot::Sender<String>
     },
     RemoveWindow(String)
+}
+
+impl EbcCommand {
+    fn get_context_str(&self) -> &'static str {
+        use self::EbcCommand::*;
+
+        match self {
+            GlobalRefresh => "GlobalRefresh",
+            AddApplication(_, _) => "AddApplication",
+            RemoveApplication(_) => "RemoveApplication",
+            AddWindow { .. } => "AddWindow",
+            RemoveWindow(_) => "RemoveWindow"
+        }
+    }
 }
 
 impl EbcCtl {
@@ -39,52 +56,56 @@ impl EbcCtl {
         })
     }
 
-    fn recompute_hints(&self) {
-        let res = self.pixel_manager.compute_hints().map_err(anyhow::Error::new)
-            .and_then(|hints| self.driver.upload_rect_hints(hints).map_err(anyhow::Error::new));
+    fn recompute_hints(&self) -> Result<()> {
+        let hints = self.pixel_manager.compute_hints().context("Failed to compute new hints")?;
 
-        if let Err(e) = res {
-            eprintln!("{:#}", e);
-        }
+        self.driver.upload_rect_hints(hints).context("Failed to upload hints")
+    }
+
+    async fn dispatch(&mut self, cmd: EbcCommand) -> Result<()> {
+        match cmd {
+            EbcCommand::GlobalRefresh => {
+                self.driver.global_refresh()
+                    .context("RockchipEbc::global_refresh failed")?;
+            }
+            EbcCommand::AddApplication(pid, ret) => {
+                let app_key = self.pixel_manager.app_add(Application::new("", pid));
+                ret.send(app_key).map_err(|e| anyhow!("Failed to send response: {e}"))?;
+            },
+            EbcCommand::RemoveApplication(app_id) => {
+                self.pixel_manager.app_remove(&app_id);
+                self.recompute_hints()?;
+            },
+            EbcCommand::AddWindow { app_key, title, area, hint, visible, z_index, ret } => {
+                let win_key = self.pixel_manager.window_add(Window::new(app_key, title, area, hint, visible, z_index))
+                    .context("PixelManager::window_add failed")?;
+
+                ret.send(win_key).map_err(|e| anyhow!("Failed to send response: {e:?}"))?;
+
+                self.recompute_hints()?;
+            },
+            EbcCommand::RemoveWindow(win_id) => {
+                self.pixel_manager.window_remove(win_id);
+                self.recompute_hints()?;
+            }
+        };
+
+        Ok(())
     }
 
     pub async fn serve(&mut self, mut rx: mpsc::Receiver<EbcCommand>) {
         while let Some(cmd) = rx.recv().await {
-            match cmd {
-                EbcCommand::GlobalRefresh => {
-                    if let Err(e) = self.driver.global_refresh() {
-                        eprintln!("{e}");
-                    }
-                },
-                EbcCommand::AddApplication(pid, ret) => {
-                    let app_key = self.pixel_manager.app_add(Application::new("", pid));
-                    if let Err(e) = ret.send(app_key) {
-                        eprintln!("Error: Could not send response to AddApplication: {e}");
-                    }
-                },
-                EbcCommand::RemoveApplication(app_id) => {
-                    self.pixel_manager.app_remove(&app_id);
-                    self.recompute_hints();
-                },
-                EbcCommand::AddWindow { app_key, title, area, hint, visible, z_index, ret } => {
-                    let win_key = self.pixel_manager.window_add(Window::new(app_key, title, area, hint, visible, z_index));
+            let ctx = cmd.get_context_str();
 
-                    if let Err(ref e) = win_key {
-                        eprintln!("{e}");
-                    }
+            eprintln!("======== EBC_CTL -> {ctx} =========");
 
-                    if let Err(_) = ret.send(win_key) {
-                        eprintln!("Error: Could not send response to AddWindow");
-                    }
+            if let Err(e) = self.dispatch(cmd).await
+                .with_context(|| format!("While handling {ctx}"))
+            {
+                eprintln!("{e:?}")
+            }
 
-                    self.recompute_hints();
-                },
-                EbcCommand::RemoveWindow(win_id) => {
-                    self.pixel_manager.window_remove(win_id);
-
-                    self.recompute_hints();
-                }
-            };
+            eprintln!("======== !EBC_CTL -> {ctx} =========");
         }
     }
 }
