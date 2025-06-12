@@ -3,7 +3,7 @@ use nix::libc::pid_t;
 use tokio::{signal, sync::{mpsc, oneshot}};
 use pinenote_service::{
     drivers::rockchip_ebc::RockchipEbc,
-    pixel_manager::{Application, PixelManager, Window},
+    pixel_manager::{Application, PixelManager, Window, WindowData},
     types::{rockchip_ebc::Hint, Rect}
 };
 use zbus::{connection, interface};
@@ -26,6 +26,14 @@ pub enum EbcCommand {
         z_index: i32,
         ret: oneshot::Sender<String>
     },
+    UpdateWindow {
+        win_key: String,
+        title: Option<String>,
+        area: Option<Rect>,
+        hint: Option<Option<Hint>>,
+        visible: Option<bool>,
+        z_index: Option<i32>
+    },
     RemoveWindow(String)
 }
 
@@ -38,6 +46,7 @@ impl EbcCommand {
             AddApplication(_, _) => "AddApplication",
             RemoveApplication(_) => "RemoveApplication",
             AddWindow { .. } => "AddWindow",
+            UpdateWindow { .. } => "UpdateWindow",
             RemoveWindow(_) => "RemoveWindow"
         }
     }
@@ -84,6 +93,21 @@ impl EbcCtl {
 
                 self.recompute_hints()?;
             },
+            EbcCommand::UpdateWindow { win_key, title, area, hint, visible, z_index } => {
+                let win = self.pixel_manager.window(&win_key).context("Failed to get window {win_key}")?;
+
+                let update = WindowData {
+                    title: title.unwrap_or(win.data.title.clone()),
+                    area: area.unwrap_or(win.data.area.clone()),
+                    hint: hint.unwrap_or(win.data.hint),
+                    visible: visible.unwrap_or(win.data.visible),
+                    z_index: z_index.unwrap_or(win.data.z_index),
+                };
+
+                self.pixel_manager.window_update(&win_key, update).context("Failed to update window {win_key}")?;
+
+                self.recompute_hints()?;
+            }
             EbcCommand::RemoveWindow(win_id) => {
                 self.pixel_manager.window_remove(win_id);
                 self.recompute_hints()?;
