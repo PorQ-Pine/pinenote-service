@@ -163,9 +163,6 @@ impl SwayBridge {
         let app_meta = self.app_meta.get_mut(&win.pid).expect("Window should be added after apps");
         let app_key = app_meta.0.clone();
 
-        let hint_str = win.hint.map(|h| h.to_string()).unwrap_or("NoHint".into());
-        eprintln!("ADDWINDOW: {} with hint {}", win.title, hint_str);
-
         let cmd = EbcCommand::AddWindow {
             app_key,
             title: win.title.clone(),
@@ -273,7 +270,6 @@ impl SwayBridge {
 
         loop {
             if process_tree {
-                eprintln!("====== Processing Tree ======");
                 if let Err(e) = self.process_tree(&mut tx).await.context("Failed to process_tree") {
                     eprintln!("{e:?}");
                 };
@@ -282,7 +278,6 @@ impl SwayBridge {
 
             if let Some(evt) = self.swayevents.next().await {
                 let event = evt?;
-                eprintln!("======== New Sway Event =======");
 
                 match event {
                     Event::Shutdown(_) => { break },
@@ -295,7 +290,10 @@ impl SwayBridge {
                             Ok(t) => {
                                 self.transform = t;
                             }
-                            Err(e) => { eprintln!("{e:#?}"); }
+                            Err(e) => {
+                                self.transform = Matrix3::identity();
+                                eprintln!("{e:#?}");
+                            }
                         }
                         process_tree = true;
                     },
