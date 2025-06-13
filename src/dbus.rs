@@ -1,7 +1,31 @@
-use tokio::sync::mpsc;
-use zbus::{fdo, interface};
+use pinenote_service::types::rockchip_ebc::{Hint as CoreHint, HintBitDepth, HintConvertMode};
+use tokio::sync::{mpsc, oneshot};
+use zbus::{fdo, interface, zvariant::{Type, Value}};
 
-use crate::EbcCommand;
+use crate::{EbcCommand, EbcProperty};
+
+#[derive(Type, Value)]
+struct Hint {
+    bit_depth: HintBitDepth,
+    convert: HintConvertMode,
+    redraw: bool,
+}
+
+impl From<CoreHint> for Hint {
+    fn from(value: CoreHint) -> Self {
+        Self {
+            bit_depth: value.bit_depth(),
+            convert: value.convert_mode(),
+            redraw: value.redraw()
+        }
+    }
+}
+
+impl From<Hint> for CoreHint {
+    fn from(value: Hint) -> Self {
+        Self::new(value.bit_depth, value.convert, value.redraw)
+    }
+}
 
 pub struct PineNoteCtl {
     ebc_tx: mpsc::Sender<EbcCommand>
@@ -33,5 +57,26 @@ impl PineNoteCtl {
         } else {
             Ok(())
         }
+    }
+
+    #[zbus(property)]
+    async fn default_hint(&self) -> fdo::Result<Hint> {
+        let (tx, rx) = oneshot::channel::<CoreHint>();
+
+        self.ebc_tx.send(EbcProperty::DefaultHint(tx).into()).await
+            .map_err(|_| fdo::Error::Failed("Internal Error".into()))?;
+        let h = rx.await.map_err(|_| fdo::Error::Failed("Internal error".into()))?;
+
+        Ok(h.into())
+    }
+
+    #[zbus(property)]
+    async fn set_default_hint(&self, hint: Hint) -> Result<(), zbus::Error> {
+        let hint : CoreHint = hint.into();
+
+        self.ebc_tx.send(EbcProperty::SetDefaultHint(hint).into()).await
+            .map_err(|_| fdo::Error::Failed("Internal error".into()))?;
+
+        Ok(())
     }
 }
