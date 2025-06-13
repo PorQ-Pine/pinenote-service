@@ -38,6 +38,7 @@ pub enum EbcCommand {
         z_index: Option<i32>
     },
     RemoveWindow(String),
+    Property(EbcProperty),
     Dump(String)
 }
 
@@ -52,8 +53,31 @@ impl EbcCommand {
             AddWindow { .. } => "AddWindow",
             UpdateWindow { .. } => "UpdateWindow",
             RemoveWindow(_) => "RemoveWindow",
+            Property(p) => p.get_context_str(),
             Dump(_) => "Dump"
         }
+    }
+}
+
+pub enum EbcProperty {
+    DefaultHint(oneshot::Sender<Hint>),
+    SetDefaultHint(Hint)
+}
+
+impl EbcProperty {
+    fn get_context_str(&self) -> &'static str {
+        use self::EbcProperty::*;
+
+        match self {
+            DefaultHint(_) => "Property::GetDefaultHint",
+            SetDefaultHint(_) => "Property::SetDefaultHint",
+        }
+    }
+}
+
+impl From<EbcProperty> for EbcCommand {
+    fn from(value: EbcProperty) -> Self {
+        Self::Property(value)
     }
 }
 
@@ -86,6 +110,24 @@ impl EbcCtl {
         let _ = writeln!(output, "PixelManager: ");
         let _ = writeln!(output, "{:#?}", self.pixel_manager);
         let _ = writeln!(output, "=========== ! EBC_CTL DUMP ===========");
+    }
+
+    async fn dispatch_props(&mut self, prop_cmd: EbcProperty) -> Result<()> {
+        use self::EbcProperty::*;
+
+        match prop_cmd {
+            DefaultHint(tx) => {
+                let h = self.pixel_manager.default_hint;
+                tx.send(h).map_err(|_| anyhow!("Failed to send back default hint"))?;
+            },
+            SetDefaultHint(h) => {
+                self.pixel_manager.default_hint = h;
+
+                self.recompute_hints()?;
+            }
+        }
+
+        Ok(())
     }
 
     async fn dispatch(&mut self, cmd: EbcCommand) -> Result<()> {
@@ -141,6 +183,9 @@ impl EbcCtl {
                 } else {
                     self.dump(std::io::stderr());
                 }
+            }
+            EbcCommand::Property(p) => {
+                self.dispatch_props(p).await?;
             }
         };
 
