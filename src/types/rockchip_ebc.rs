@@ -4,12 +4,13 @@ use std::{fmt::Display, num::ParseIntError, str::FromStr};
 
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
+use zbus::zvariant::{Type, Value};
 
 use crate::ioctls::{self, drm};
 
 use super::Rect;
 
-#[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy)]
+#[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy, Type, Value)]
 #[repr(u8)]
 pub enum HintBitDepth {
     Y1 = 0,
@@ -17,7 +18,7 @@ pub enum HintBitDepth {
     Y4 = 2
 }
 
-#[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy)]
+#[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy, Type, Value)]
 #[repr(u8)]
 pub enum HintConvertMode {
     Threshold = 0,
