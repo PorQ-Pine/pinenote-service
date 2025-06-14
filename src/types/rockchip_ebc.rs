@@ -197,3 +197,63 @@ impl From<RectHint> for ioctls::rockchip_ebc::RectHint {
         }
     }
 }
+
+pub struct FrameBuffers {
+    inner_outer_nextprev: Vec<u8>,
+    hints: Vec<u8>,
+    prelim_target: Vec<u8>,
+    phase1: Vec<u8>,
+    phase2: Vec<u8>
+}
+
+impl FrameBuffers {
+    pub fn new(width: i32, height: i32) -> Self {
+        let num_pixels : usize = width as usize * height as usize;
+
+        let inner_outer_nextprev: Vec<u8> = vec![0; 3 * num_pixels];
+        let hints: Vec<u8> = vec![0; num_pixels];
+        let prelim_target: Vec<u8> = vec![0; num_pixels];
+        let phase1 = vec![0; num_pixels >> 2];
+        let phase2 = phase1.clone();
+
+        Self {
+            inner_outer_nextprev,
+            hints,
+            prelim_target,
+            phase1,
+            phase2
+        }
+    }
+
+    pub fn inner_outer_nextprev(&self) -> &Vec<u8> {
+        &self.inner_outer_nextprev
+    }
+
+    pub fn hints(&self) -> &Vec<u8> {
+        &self.hints
+    }
+
+    pub fn prelim_target(&self) -> &Vec<u8> {
+        &self.prelim_target
+    }
+
+    pub fn phase1(&self) -> &Vec<u8> {
+        &self.phase1
+    }
+
+    pub fn phase2(&self) -> &Vec<u8> {
+        &self.phase2
+    }
+}
+
+impl From<&mut FrameBuffers> for ioctls::rockchip_ebc::ExtractFBs {
+    fn from(value: &mut FrameBuffers) -> Self {
+        Self {
+            ptr_packed_inner_outer_nextprev: value.inner_outer_nextprev.as_mut_ptr() as u64,
+            ptr_hints: value.hints.as_mut_ptr() as u64,
+            ptr_prelim_target: value.prelim_target.as_mut_ptr() as u64,
+            ptr_phase1: value.phase1.as_mut_ptr() as u64,
+            ptr_phase2: value.phase2.as_mut_ptr() as u64
+        }
+    }
+}

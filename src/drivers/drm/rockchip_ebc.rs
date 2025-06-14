@@ -4,7 +4,12 @@ use std::os::fd::AsRawFd;
 
 use thiserror::Error;
 
-use crate::{ioctls::{self, OpenError}, pixel_manager::ComputedHints, sysfs::{self, attribute::{AttributeBase, Boolean, Int32, RGeneric, RInt32, TypedRead}}, types::{rockchip_ebc::{DitheringMethod, Hint}, Rect}};
+use crate::{
+    ioctls::{self, OpenError},
+    pixel_manager::ComputedHints,
+    sysfs::{self, attribute::{AttributeBase, Boolean, Int32, RGeneric, RInt32, TypedRead}},
+    types::{rockchip_ebc::{DitheringMethod, FrameBuffers, Hint}, Rect }
+};
 
 #[derive(Error, Debug)]
 pub enum DriverError {
@@ -110,6 +115,20 @@ impl RockchipEbc {
 
     pub fn screen_area(&self) -> Result<Rect, DriverError> {
         Ok(Self::SCREEN_RECT.clone())
+    }
+
+    pub fn extract_framebuffers(&self) -> Result<FrameBuffers, DriverError> {
+        let file = ioctls::open_device(Self::DEV_PATH)?;
+        let Rect { x2: width, y2: height, .. } = Self::SCREEN_RECT.clone();
+        let mut fbs = FrameBuffers::new(width, height);
+
+        let mut data = ioctls::rockchip_ebc::ExtractFBs::from(&mut fbs);
+
+        unsafe {
+            ioctls::rockchip_ebc::extract_fbs_iowr(file.as_raw_fd(), &mut data)?;
+        }
+
+        Ok(fbs)
     }
 
     fn make_param<T: AttributeBase>(name: &str) -> T {
