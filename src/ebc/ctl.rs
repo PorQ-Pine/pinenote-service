@@ -1,11 +1,12 @@
-use std::io::Write;
+use std::{io::Write, path::PathBuf, time::SystemTime};
 
 use anyhow::{anyhow, Context, Result};
 use pinenote_service::{
     drivers::rockchip_ebc::RockchipEbc,
-    pixel_manager::{Application, PixelManager, Window, WindowData}
+    pixel_manager::{Application, PixelManager, Window, WindowData},
+    types::rockchip_ebc::FrameBuffers
 };
-use tokio::sync::mpsc;
+use tokio::{io::AsyncWriteExt, sync::mpsc};
 
 use super::{Command, Property};
 
@@ -38,6 +39,40 @@ impl Ctl {
         let _ = writeln!(output, "PixelManager: ");
         let _ = writeln!(output, "{:#?}", self.pixel_manager);
         let _ = writeln!(output, "=========== ! EBC_CTL DUMP ===========");
+    }
+
+
+    /// Dump Framebuffer data to a specific directory
+    async fn fb_dump_dir(fbs: FrameBuffers, path: String, stamp: u64) -> Result<()> {
+        let mut path = PathBuf::from(&path);
+        path.push(format!("dump_{}", stamp));
+
+        tokio::fs::create_dir_all(&path).await
+            .with_context(|| format!("Failed to create '{:?}'", path))?;
+
+        let mut fopt = tokio::fs::OpenOptions::new();
+        fopt
+            .create(true)
+            .mode(0o644)
+            .write(true)
+            .truncate(true);
+
+        let dump = async |filename: &str, vec: &Vec<u8>| -> Result<()> {
+            let path = path.join(filename);
+            fopt.open(&path).await
+                .with_context(|| format!("Failed to open '{:?}'", path))?
+                .write_all(vec).await
+                .with_context(|| format!("Failed to write '{:?}'", path))?;
+            Ok(())
+        };
+
+        dump("buf_inner_outer_nextprev.bin", fbs.inner_outer_nextprev()).await?;
+        dump("buf_hints.bin", fbs.hints()).await?;
+        dump("buf_prelim_target.bin", fbs.prelim_target()).await?;
+        dump("buf_phase1.bin", fbs.phase1()).await?;
+        dump("buf_phase2.bin", fbs.phase2()).await?;
+
+        Ok(())
     }
 
     async fn dispatch_props(&mut self, prop_cmd: Property) -> Result<()> {
@@ -98,6 +133,22 @@ impl Ctl {
             Command::RemoveWindow(win_id) => {
                 self.pixel_manager.window_remove(win_id);
                 self.recompute_hints()?;
+            }
+            Command::FbDumpToDir(path) => {
+                let fbs = self.driver.extract_framebuffers()
+                    .context("Could not retrieve framebuffers")?;
+
+                let now = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .context("Failed to get timestamp")?
+                    .as_secs();
+
+                tokio::spawn(async move {
+                    if let Err(e) = Self::fb_dump_dir(fbs, path, now).await
+                        .context("Failed to dump framebuffers") {
+                        eprintln!("{:#?}", e);
+                    }
+                });
             }
             Command::Dump(path) => {
                 if path == "-" {

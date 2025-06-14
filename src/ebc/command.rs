@@ -25,6 +25,7 @@ pub enum Command {
     },
     RemoveWindow(String),
     Property(Property),
+    FbDumpToDir(String),
     Dump(String)
 }
 
@@ -40,6 +41,7 @@ impl Command {
             UpdateWindow { .. } => "UpdateWindow",
             RemoveWindow(_) => "RemoveWindow",
             Property(p) => p.get_context_str(),
+            FbDumpToDir(_) => "FrameBufferDumpToDir",
             Dump(_) => "Dump"
         }
     }
