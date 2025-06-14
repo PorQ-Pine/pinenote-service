@@ -161,6 +161,71 @@ impl FromStr for DitheringMethod {
 }
 
 #[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy)]
+#[repr(u8)]
+pub enum DriverMode {
+    Normal = 0,
+    Fast = 1,
+    ZeroWaveform = 8,
+}
+
+pub struct Mode {
+    pub driver_mode: Option<DriverMode>,
+    pub dither_mode: Option<DitheringMethod>,
+    pub redraw_delay: Option<u16>
+}
+
+impl From<ioctls::rockchip_ebc::Mode> for Mode {
+    fn from(value: ioctls::rockchip_ebc::Mode) -> Self {
+        let driver_mode = match DriverMode::try_from_primitive(value.driver_mode) {
+            Ok(driver) => Some(driver),
+            Err(e) => {
+                eprintln!("Bad driver mode '{}': {:?}", value.driver_mode, e);
+                None
+            }
+        };
+
+        let dither_mode = match DitheringMethod::try_from_primitive(value.dither_mode) {
+            Ok(dither) => Some(dither),
+            Err(e) => {
+                eprintln!("Bad dithering mode '{}': {:?}", value.dither_mode, e);
+                None
+            }
+        };
+
+        let redraw_delay = Some(value.redraw_delay);
+
+        Self {
+            driver_mode,
+            dither_mode,
+            redraw_delay,
+        }
+    }
+}
+
+impl From<Mode> for ioctls::rockchip_ebc::Mode {
+    fn from(value: Mode) -> Self {
+        let mut ret = Self::new();
+
+        if let Some(driver) = value.driver_mode {
+            ret.set_driver_mode = true as u8;
+            ret.driver_mode = driver.into();
+        }
+
+        if let Some(dither_mode) = value.dither_mode {
+            ret.set_dither_mode = true as u8;
+            ret.dither_mode = dither_mode.into();
+        }
+
+        if let Some(delay) = value.redraw_delay {
+            ret.set_redraw_delay = true as u8;
+            ret.redraw_delay = delay;
+        }
+
+        ret
+    }
+}
+
+#[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy)]
 #[repr(i32)]
 pub enum DclkSelect {
     Mode = -1,

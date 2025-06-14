@@ -8,7 +8,7 @@ use crate::{
     ioctls::{self, OpenError},
     pixel_manager::ComputedHints,
     sysfs::{self, attribute::{AttributeBase, Boolean, Int32, RGeneric, RInt32, TypedRead}},
-    types::{rockchip_ebc::{DitheringMethod, FrameBuffers, Hint}, Rect }
+    types::{rockchip_ebc::{DitheringMethod, FrameBuffers, Hint, Mode}, Rect }
 };
 
 #[derive(Error, Debug)]
@@ -129,6 +129,28 @@ impl RockchipEbc {
         }
 
         Ok(fbs)
+    }
+
+    pub fn driver_mode(&self) -> Result<Mode, DriverError> {
+        let file = ioctls::open_device(Self::DEV_PATH)?;
+        let mut data = ioctls::rockchip_ebc::Mode::new();
+
+        unsafe {
+            ioctls::rockchip_ebc::mode_iowr(file.as_raw_fd(), &mut data)?;
+        }
+
+        Ok(data.into())
+    }
+
+    pub fn set_driver_mode(&self, mode: Mode) -> Result<(), DriverError> {
+        let file = ioctls::open_device(Self::DEV_PATH)?;
+        let mut data = mode.into();
+
+        unsafe {
+            ioctls::rockchip_ebc::mode_iowr(file.as_raw_fd(), &mut data)?;
+        }
+
+        Ok(())
     }
 
     fn make_param<T: AttributeBase>(name: &str) -> T {

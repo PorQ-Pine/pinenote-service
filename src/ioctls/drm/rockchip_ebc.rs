@@ -80,6 +80,7 @@ ioctl_write_ptr!(
     drm::IOCTL_MAGIC, RECT_HINTS_NR, RectHints);
 
 /// [mode_iowr] parameter type
+#[derive(Default)]
 #[repr(C)]
 pub struct Mode {
 	pub set_driver_mode: u8,
@@ -94,6 +95,12 @@ ioctl_readwrite!(
     /// Query or set driver mode, dither mode and redraw delays
     mode_iowr,
     drm::IOCTL_MAGIC, MODE_NR, Mode);
+
+impl Mode {
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
 
 #[repr(C)]
 pub struct ZeroWaveform {
