@@ -50,6 +50,15 @@ impl PineNoteCtl {
         }
     }
 
+    async fn dump_framebuffers(&self, directory: String) -> Result<(), fdo::Error> {
+        if let Err(e) = self.ebc_tx.send(ebc::Command::FbDumpToDir(directory)).await {
+            eprintln!("Could not send FbDumpToDir command: {e:?}");
+            Err(zbus::fdo::Error::Failed("InternalError".into()))
+        } else {
+            Ok(())
+        }
+    }
+
     async fn dump(&self, path: String) -> Result<(), fdo::Error> {
         if let Err(e) = self.ebc_tx.send(ebc::Command::Dump(path)).await {
             eprintln!("Failed to send Dump command {e:?}");
