@@ -37,55 +37,65 @@ impl PineNoteCtl {
             ebc_tx
         }
     }
+
+    async fn do_send(&self, cmd: ebc::Command, str: &str) -> fdo::Result<()> {
+        if let Err(e) = self.ebc_tx.send(cmd).await {
+            eprintln!("Failed to send {str}: {e:?}");
+            Err(zbus::fdo::Error::Failed("Internal Error".into()))
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn send(&self, cmd: impl Into<ebc::Command>) -> fdo::Result<()> {
+        let cmd = cmd.into();
+        let cmd_str = cmd.get_context_str();
+
+        self.do_send(cmd, cmd_str).await
+    }
+
+    async fn send_with_reply<T>(&self, cmd: impl Into<ebc::Command>, rx: oneshot::Receiver<T>) -> fdo::Result<T> {
+        let cmd = cmd.into();
+        let cmd_str = cmd.get_context_str();
+        self.do_send(cmd, cmd_str).await?;
+
+        match rx.await {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                eprintln!("Failed to receive reply to {cmd_str}: {e:#?}");
+                Err(fdo::Error::Failed("Internal Error".into()))
+            }
+        }
+    }
 }
 
 #[interface(name = "org.pinenote.Ebc1")]
 impl PineNoteCtl {
     async fn global_refresh(&self) -> Result<(), fdo::Error> {
-        if let Err(e) = self.ebc_tx.send(ebc::Command::GlobalRefresh).await {
-            eprintln!("Failed to trigger global refresh: {e:?}");
-            Err(zbus::fdo::Error::Failed("InternalError".into()))
-        } else {
-            Ok(())
-        }
+        self.send(ebc::Command::GlobalRefresh).await
     }
 
     async fn dump_framebuffers(&self, directory: String) -> Result<(), fdo::Error> {
-        if let Err(e) = self.ebc_tx.send(ebc::Command::FbDumpToDir(directory)).await {
-            eprintln!("Could not send FbDumpToDir command: {e:?}");
-            Err(zbus::fdo::Error::Failed("InternalError".into()))
-        } else {
-            Ok(())
-        }
+        self.send(ebc::Command::FbDumpToDir(directory)).await
     }
 
     async fn dump(&self, path: String) -> Result<(), fdo::Error> {
-        if let Err(e) = self.ebc_tx.send(ebc::Command::Dump(path)).await {
-            eprintln!("Failed to send Dump command {e:?}");
-            Err(zbus::fdo::Error::Failed("InternalError".into()))
-        } else {
-            Ok(())
-        }
+        self.send(ebc::Command::Dump(path)).await
     }
 
     #[zbus(property)]
     async fn default_hint(&self) -> fdo::Result<Hint> {
         let (tx, rx) = oneshot::channel::<CoreHint>();
 
-        self.ebc_tx.send(ebc::Property::DefaultHint(tx).into()).await
-            .map_err(|_| fdo::Error::Failed("Internal Error".into()))?;
-        let h = rx.await.map_err(|_| fdo::Error::Failed("Internal error".into()))?;
-
-        Ok(h.into())
+        self.send_with_reply(ebc::Property::DefaultHint(tx), rx).await
+            .map(|ch| ch.into())
     }
 
     #[zbus(property)]
     async fn set_default_hint(&self, hint: Hint) -> Result<(), zbus::Error> {
         let hint : CoreHint = hint.into();
 
-        self.ebc_tx.send(ebc::Property::SetDefaultHint(hint).into()).await
-            .map_err(|_| fdo::Error::Failed("Internal error".into()))?;
-
-        Ok(())
+        self.send(ebc::Property::SetDefaultHint(hint)).await
+            .map_err(zbus::Error::from)
     }
 }
