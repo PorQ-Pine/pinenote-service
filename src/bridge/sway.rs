@@ -8,7 +8,7 @@ use futures_lite::stream::StreamExt;
 use anyhow::{bail, Context, Result};
 use tokio::sync::{mpsc::Sender, oneshot};
 
-use crate::EbcCommand;
+use crate::ebc;
 
 mod utils;
 
@@ -131,9 +131,9 @@ impl SwayBridge {
     }
 
     /// Add an application
-    async fn add_app(&mut self, pid: pid_t, tx: &mut Sender<EbcCommand>) -> Result<()> {
+    async fn add_app(&mut self, pid: pid_t, tx: &mut Sender<ebc::Command>) -> Result<()> {
         let (ret_tx, ret_rx) = oneshot::channel::<String>();
-        tx.send(EbcCommand::AddApplication(pid, ret_tx)).await.context("Failed to add application '{pid}'")?;
+        tx.send(ebc::Command::AddApplication(pid, ret_tx)).await.context("Failed to add application '{pid}'")?;
         let app_key = ret_rx.await.context("Failed to get application key for '{pid}'")?;
 
         self.app_meta.insert(pid, (app_key.clone(), Default::default()));
@@ -142,11 +142,11 @@ impl SwayBridge {
     }
 
     /// Remove stale app from the app_meta map, notifying the EbcService in the process.
-    async fn remove_stale_apps(&mut self, stale_pid: Vec<pid_t>, tx: &mut Sender<EbcCommand>) -> Result<()> {
+    async fn remove_stale_apps(&mut self, stale_pid: Vec<pid_t>, tx: &mut Sender<ebc::Command>) -> Result<()> {
         for p in stale_pid {
             let Some((app_key, win_ids)) = self.app_meta.remove(&p) else { continue; };
 
-            tx.send(EbcCommand::RemoveApplication(app_key)).await
+            tx.send(ebc::Command::RemoveApplication(app_key)).await
                 .context("Failed to send RemoveApplication for '{app_key}'")?;
 
             for id in win_ids {
@@ -158,13 +158,13 @@ impl SwayBridge {
     }
 
     /// Add a new window
-    async fn add_window(&mut self, win: SwayWindow, tx: &mut Sender<EbcCommand>) -> Result<()> {
+    async fn add_window(&mut self, win: SwayWindow, tx: &mut Sender<ebc::Command>) -> Result<()> {
         let (rtx, rx) = oneshot::channel::<String>();
 
         let app_meta = self.app_meta.get_mut(&win.pid).expect("Window should be added after apps");
         let app_key = app_meta.0.clone();
 
-        let cmd = EbcCommand::AddWindow {
+        let cmd = ebc::Command::AddWindow {
             app_key,
             title: win.title.clone(),
             area: win.area.clone(),
@@ -185,11 +185,11 @@ impl SwayBridge {
     }
 
     /// Update Window
-    async fn update_window(&mut self, up_win: SwayWindow, tx: &mut Sender<EbcCommand>) -> Result<()> {
+    async fn update_window(&mut self, up_win: SwayWindow, tx: &mut Sender<ebc::Command>) -> Result<()> {
         let &mut (ref win_key,ref mut win) = self.window_meta.get_mut(&up_win.id).unwrap();
 
         if let Some(SwayWindowDiff { title, area, visible, hint, z_index, .. }) = win.diff(&up_win) {
-            tx.send(EbcCommand::UpdateWindow {
+            tx.send(ebc::Command::UpdateWindow {
                 win_key: win_key.clone(),
                 title,
                 area,
@@ -205,11 +205,11 @@ impl SwayBridge {
         Ok(())
     }
 
-    async fn remove_stale_windows(&mut self, stale_id: Vec<i64>, tx: &mut Sender<EbcCommand>) -> Result<()> {
+    async fn remove_stale_windows(&mut self, stale_id: Vec<i64>, tx: &mut Sender<ebc::Command>) -> Result<()> {
         for wid in stale_id {
             let Some((win_key, win)) = self.window_meta.remove(&wid) else { continue; };
 
-            tx.send(EbcCommand::RemoveWindow(win_key)).await.context("Failed to remove window '{win_key}'")?;
+            tx.send(ebc::Command::RemoveWindow(win_key)).await.context("Failed to remove window '{win_key}'")?;
 
             self.app_meta.entry(win.pid).and_modify(|e| { e.1.remove(&wid); });
         }
@@ -217,7 +217,7 @@ impl SwayBridge {
         Ok(())
     }
 
-    async fn process_tree(&mut self, tx: &mut Sender<EbcCommand>) -> Result<()> {
+    async fn process_tree(&mut self, tx: &mut Sender<ebc::Command>) -> Result<()> {
         let swaytree = self.swayipc.get_tree().await.context("Failed to get Sway Tree")?;
 
         let Some(output) = swaytree.find_as_ref(|n|
@@ -266,7 +266,7 @@ impl SwayBridge {
         Ok(())
     }
 
-    pub async fn run(&mut self, mut tx: Sender<EbcCommand>) -> Result<()> {
+    pub async fn run(&mut self, mut tx: Sender<ebc::Command>) -> Result<()> {
         let mut process_tree = true;
 
         loop {

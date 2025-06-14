@@ -2,7 +2,7 @@ use pinenote_service::types::rockchip_ebc::{Hint as CoreHint, HintBitDepth, Hint
 use tokio::sync::{mpsc, oneshot};
 use zbus::{fdo, interface, zvariant::{Type, Value}};
 
-use crate::{EbcCommand, EbcProperty};
+use crate::ebc;
 
 #[derive(Type, Value)]
 struct Hint {
@@ -28,11 +28,11 @@ impl From<Hint> for CoreHint {
 }
 
 pub struct PineNoteCtl {
-    ebc_tx: mpsc::Sender<EbcCommand>
+    ebc_tx: mpsc::Sender<ebc::Command>
 }
 
 impl PineNoteCtl {
-    pub fn new(ebc_tx: mpsc::Sender<EbcCommand>) -> Self {
+    pub fn new(ebc_tx: mpsc::Sender<ebc::Command>) -> Self {
         Self {
             ebc_tx
         }
@@ -42,7 +42,7 @@ impl PineNoteCtl {
 #[interface(name = "org.pinenote.Ebc1")]
 impl PineNoteCtl {
     async fn global_refresh(&self) -> Result<(), fdo::Error> {
-        if let Err(e) = self.ebc_tx.send(EbcCommand::GlobalRefresh).await {
+        if let Err(e) = self.ebc_tx.send(ebc::Command::GlobalRefresh).await {
             eprintln!("Failed to trigger global refresh: {e:?}");
             Err(zbus::fdo::Error::Failed("InternalError".into()))
         } else {
@@ -51,7 +51,7 @@ impl PineNoteCtl {
     }
 
     async fn dump(&self, path: String) -> Result<(), fdo::Error> {
-        if let Err(e) = self.ebc_tx.send(EbcCommand::Dump(path)).await {
+        if let Err(e) = self.ebc_tx.send(ebc::Command::Dump(path)).await {
             eprintln!("Failed to send Dump command {e:?}");
             Err(zbus::fdo::Error::Failed("InternalError".into()))
         } else {
@@ -63,7 +63,7 @@ impl PineNoteCtl {
     async fn default_hint(&self) -> fdo::Result<Hint> {
         let (tx, rx) = oneshot::channel::<CoreHint>();
 
-        self.ebc_tx.send(EbcProperty::DefaultHint(tx).into()).await
+        self.ebc_tx.send(ebc::Property::DefaultHint(tx).into()).await
             .map_err(|_| fdo::Error::Failed("Internal Error".into()))?;
         let h = rx.await.map_err(|_| fdo::Error::Failed("Internal error".into()))?;
 
@@ -74,7 +74,7 @@ impl PineNoteCtl {
     async fn set_default_hint(&self, hint: Hint) -> Result<(), zbus::Error> {
         let hint : CoreHint = hint.into();
 
-        self.ebc_tx.send(EbcProperty::SetDefaultHint(hint).into()).await
+        self.ebc_tx.send(ebc::Property::SetDefaultHint(hint).into()).await
             .map_err(|_| fdo::Error::Failed("Internal error".into()))?;
 
         Ok(())
