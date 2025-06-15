@@ -4,6 +4,7 @@ use pinenote_service::types::rockchip_ebc::{
 use tokio::sync::{mpsc, oneshot};
 use zbus::{
     fdo, interface,
+    object_server::SignalEmitter,
     zvariant::{Type, Value},
 };
 
@@ -70,6 +71,47 @@ impl PineNoteCtl {
             .send(ebc::Command::Dump(path))
             .await
             .map_err(internal_error)
+    }
+
+    async fn cycle_driver_mode(
+        &self,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
+        let (tx, reply) = oneshot::channel::<DriverMode>();
+
+        let driver_mode = self
+            .ebc_tx
+            .with_reply(ebc::Property::DriverMode(tx), reply)
+            .await
+            .map_err(internal_error)?;
+
+        let new_mode = driver_mode.cycle_next();
+        if new_mode != driver_mode {
+            self.set_driver_mode(new_mode).await?;
+            self.driver_mode_changed(&emitter).await?;
+        }
+        Ok(())
+    }
+
+    async fn cycle_dither_mode(
+        &self,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
+        let (tx, reply) = oneshot::channel::<DitherMode>();
+
+        let dither_mode = self
+            .ebc_tx
+            .with_reply(ebc::Property::DitherMode(tx), reply)
+            .await
+            .map_err(internal_error)?;
+
+        let new_mode = dither_mode.cycle_next();
+        if new_mode != dither_mode {
+            self.set_dither_mode(new_mode).await?;
+            self.dither_mode_changed(&emitter).await?;
+        }
+
+        Ok(())
     }
 
     #[zbus(property)]

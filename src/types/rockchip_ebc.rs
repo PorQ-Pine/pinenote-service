@@ -155,12 +155,22 @@ impl Debug for Hint {
     }
 }
 
-#[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy, Type, Value)]
+#[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy, PartialEq, Eq, Type, Value)]
 #[repr(u8)]
 pub enum DitherMode {
     Bayer = 0,
     BlueNoise16 = 1,
     BlueNoise32 = 2,
+}
+
+impl DitherMode {
+    pub fn cycle_next(&self) -> Self {
+        match self {
+            Self::Bayer => Self::BlueNoise16,
+            Self::BlueNoise16 => Self::BlueNoise32,
+            Self::BlueNoise32 => Self::Bayer,
+        }
+    }
 }
 
 impl FromStr for DitherMode {
@@ -178,6 +188,16 @@ pub enum DriverMode {
     Normal = 0,
     Fast = 1,
     ZeroWaveform = 8,
+}
+
+impl DriverMode {
+    pub fn cycle_next(&self) -> Self {
+        match self {
+            Self::Normal => Self::Fast,
+            Self::Fast => Self::Normal,
+            _ => *self,
+        }
+    }
 }
 
 #[derive(Default)]
