@@ -155,7 +155,7 @@ impl Debug for Hint {
     }
 }
 
-#[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy)]
+#[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy, Type, Value)]
 #[repr(u8)]
 pub enum DitherMode {
     Bayer = 0,
@@ -172,7 +172,7 @@ impl FromStr for DitherMode {
     }
 }
 
-#[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy)]
+#[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy, PartialEq, Eq, Type, Value)]
 #[repr(u8)]
 pub enum DriverMode {
     Normal = 0,

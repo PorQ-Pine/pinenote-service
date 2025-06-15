@@ -1,4 +1,6 @@
-use pinenote_service::types::rockchip_ebc::{Hint as CoreHint, HintBitDepth, HintConvertMode};
+use pinenote_service::types::rockchip_ebc::{
+    DitherMode, DriverMode, Hint as CoreHint, HintBitDepth, HintConvertMode,
+};
 use tokio::sync::{mpsc, oneshot};
 use zbus::{
     fdo, interface,
@@ -87,6 +89,67 @@ impl PineNoteCtl {
 
         self.ebc_tx
             .send(ebc::Property::SetDefaultHint(hint))
+            .await
+            .map_err(internal_error)
+            .map_err(zbus::Error::from)
+    }
+
+    #[zbus(property)]
+    async fn driver_mode(&self) -> fdo::Result<DriverMode> {
+        let (tx, reply) = oneshot::channel::<DriverMode>();
+
+        self.ebc_tx
+            .with_reply(ebc::Property::DriverMode(tx), reply)
+            .await
+            .map_err(internal_error)
+    }
+
+    #[zbus(property)]
+    async fn set_driver_mode(&self, driver_mode: DriverMode) -> Result<(), zbus::Error> {
+        if driver_mode == DriverMode::ZeroWaveform {
+            Err(fdo::Error::InvalidArgs("Value not supported".into()))?
+        }
+
+        self.ebc_tx
+            .send(ebc::Property::SetDriverMode(driver_mode))
+            .await
+            .map_err(internal_error)
+            .map_err(zbus::Error::from)
+    }
+
+    #[zbus(property)]
+    async fn dither_mode(&self) -> fdo::Result<DitherMode> {
+        let (tx, reply) = oneshot::channel::<DitherMode>();
+
+        self.ebc_tx
+            .with_reply(ebc::Property::DitherMode(tx), reply)
+            .await
+            .map_err(internal_error)
+    }
+
+    #[zbus(property)]
+    async fn set_dither_mode(&self, dither_mode: DitherMode) -> Result<(), zbus::Error> {
+        self.ebc_tx
+            .send(ebc::Property::SetDitherMode(dither_mode))
+            .await
+            .map_err(internal_error)
+            .map_err(zbus::Error::from)
+    }
+
+    #[zbus(property)]
+    async fn redraw_delay(&self) -> fdo::Result<u16> {
+        let (tx, reply) = oneshot::channel::<u16>();
+
+        self.ebc_tx
+            .with_reply(ebc::Property::RedrawDelay(tx), reply)
+            .await
+            .map_err(internal_error)
+    }
+
+    #[zbus(property)]
+    async fn set_redraw_delay(&self, redraw_delay: u16) -> Result<(), zbus::Error> {
+        self.ebc_tx
+            .send(ebc::Property::SetRedrawDelay(redraw_delay))
             .await
             .map_err(internal_error)
             .map_err(zbus::Error::from)
