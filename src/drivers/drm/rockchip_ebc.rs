@@ -9,7 +9,7 @@ use crate::{
     pixel_manager::ComputedHints,
     sysfs::{
         self,
-        attribute::{AttributeBase, Boolean, Int32, RGeneric, RInt32, TypedRead},
+        attribute::{AttributeBase, Boolean, Int32, RGeneric, RInt32, TypedRead, TypedWrite},
     },
     types::{
         Rect,
@@ -25,6 +25,8 @@ pub enum DriverError {
     IotclError(#[from] nix::Error),
     #[error(transparent)]
     SysFs(#[from] sysfs::attribute::Error),
+    #[error("Bad size. Expected {0}, got {1}")]
+    BadSize(usize, usize),
 }
 
 /// Control structure for the RockchipEbc driver
@@ -80,6 +82,16 @@ impl RockchipEbc {
     /// Get the method used for dithering
     pub fn dithering_method(&self) -> Result<DitherMode, crate::sysfs::attribute::Error> {
         self.dithering_method.read()
+    }
+
+    /// Check if off screen support is disable
+    pub fn no_off_screen(&self) -> Result<bool, crate::sysfs::attribute::Error> {
+        self.no_off_screen.read()
+    }
+
+    /// Enable or disable off screen support.
+    pub fn set_no_off_screen(&self, value: bool) -> Result<(), crate::sysfs::attribute::Error> {
+        self.no_off_screen.write(value)
     }
 
     /// Trigger a full screen refresh
@@ -160,6 +172,28 @@ impl RockchipEbc {
 
         unsafe {
             ioctls::rockchip_ebc::mode_iowr(file.as_raw_fd(), &mut data)?;
+        }
+
+        Ok(())
+    }
+
+    /// Upload content for Off Screen
+    pub fn upload_off_screen(&self, screen_content: Vec<u8>) -> Result<(), DriverError> {
+        let Rect { x2, y2, .. } = Self::SCREEN_RECT;
+        let num_pixel = x2 as usize * y2 as usize;
+
+        if screen_content.len() != num_pixel {
+            Err(DriverError::BadSize(num_pixel, screen_content.len()))?;
+        }
+
+        let file = ioctls::open_device(Self::DEV_PATH)?;
+        let data = ioctls::rockchip_ebc::OffScreen {
+            _info: Default::default(),
+            ptr_screen_content: screen_content.as_ptr() as u64,
+        };
+
+        unsafe {
+            ioctls::rockchip_ebc::off_screen_iow(file.as_raw_fd(), &data)?;
         }
 
         Ok(())
