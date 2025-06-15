@@ -3,16 +3,16 @@ use std::{io::Write, path::PathBuf, time::SystemTime};
 use anyhow::{anyhow, Context, Result};
 use pinenote_service::{
     drivers::rockchip_ebc::RockchipEbc,
-    pixel_manager::{Application, PixelManager, Window, WindowData},
+    pixel_manager as pm,
     types::rockchip_ebc::FrameBuffers
 };
 use tokio::{io::AsyncWriteExt, sync::mpsc};
 
-use super::{Command, Property};
+use super::command::{self as cmd, CommandStr};
 
 pub struct Ctl {
     driver: RockchipEbc,
-    pixel_manager: PixelManager,
+    pixel_manager: pm::PixelManager,
 }
 
 impl Ctl {
@@ -24,7 +24,7 @@ impl Ctl {
 
         Ok(Ctl {
             driver: RockchipEbc::new(),
-            pixel_manager: PixelManager::new(default_hint, screen_area)
+            pixel_manager: pm::PixelManager::new(default_hint, screen_area)
         })
     }
 
@@ -75,8 +75,25 @@ impl Ctl {
         Ok(())
     }
 
-    async fn dispatch_props(&mut self, prop_cmd: Property) -> Result<()> {
-        use self::Property::*;
+    async fn dispatch_app(&mut self, app_cmd: cmd::Application) -> Result<()> {
+        use cmd::Application::*;
+
+        match app_cmd {
+            Add(pid, reply) => {
+                let app_key = self.pixel_manager.app_add(pm::Application::new("", pid));
+                reply.send(app_key).map_err(|e| anyhow!("Failed to send response: {e}"))?;
+            }
+            Remove(app_id) => {
+                self.pixel_manager.app_remove(&app_id);
+                self.recompute_hints()?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn dispatch_props(&mut self, prop_cmd: cmd::Property) -> Result<()> {
+        use cmd::Property::*;
 
         match prop_cmd {
             DefaultHint(tx) => {
@@ -93,32 +110,23 @@ impl Ctl {
         Ok(())
     }
 
-    async fn dispatch(&mut self, cmd: Command) -> Result<()> {
-        match cmd {
-            Command::GlobalRefresh => {
-                self.driver.global_refresh()
-                    .context("RockchipEbc::global_refresh failed")?;
-            }
-            Command::AddApplication(pid, ret) => {
-                let app_key = self.pixel_manager.app_add(Application::new("", pid));
-                ret.send(app_key).map_err(|e| anyhow!("Failed to send response: {e}"))?;
-            },
-            Command::RemoveApplication(app_id) => {
-                self.pixel_manager.app_remove(&app_id);
-                self.recompute_hints()?;
-            },
-            Command::AddWindow { app_key, title, area, hint, visible, z_index, ret } => {
-                let win_key = self.pixel_manager.window_add(Window::new(app_key, title, area, hint, visible, z_index))
+    async fn dispatch_window(&mut self, win_cmd: cmd::Window) -> Result<()> {
+        use cmd::Window::*;
+
+        match win_cmd {
+            Add { app_key, title, area, hint, visible, z_index, reply } => {
+                let win_key = self.pixel_manager.window_add(pm::Window::new(app_key, title, area, hint, visible, z_index))
                     .context("PixelManager::window_add failed")?;
 
-                ret.send(win_key).map_err(|e| anyhow!("Failed to send response: {e:?}"))?;
+                reply.send(win_key).map_err(|e| anyhow!("Failed to send response: {e:?}"))?;
 
                 self.recompute_hints()?;
             },
-            Command::UpdateWindow { win_key, title, area, hint, visible, z_index } => {
-                let win = self.pixel_manager.window(&win_key).context("Failed to get window {win_key}")?;
+            Update { win_key, title, area, hint, visible, z_index } => {
+                let win = self.pixel_manager.window(&win_key)
+                    .context("Failed to get window {win_key}")?;
 
-                let update = WindowData {
+                let update = pm::WindowData {
                     title: title.unwrap_or(win.data.title.clone()),
                     area: area.unwrap_or(win.data.area.clone()),
                     hint: hint.unwrap_or(win.data.hint),
@@ -126,15 +134,38 @@ impl Ctl {
                     z_index: z_index.unwrap_or(win.data.z_index),
                 };
 
-                self.pixel_manager.window_update(&win_key, update).context("Failed to update window {win_key}")?;
+                self.pixel_manager.window_update(&win_key, update)
+                    .context("Failed to update window {win_key}")?;
 
                 self.recompute_hints()?;
             }
-            Command::RemoveWindow(win_id) => {
+            Remove(win_id) => {
                 self.pixel_manager.window_remove(win_id);
                 self.recompute_hints()?;
             }
-            Command::FbDumpToDir(path) => {
+        }
+
+        Ok(())
+    }
+
+    async fn dispatch(&mut self, cmd: cmd::Command) -> Result<()> {
+        use cmd::Command::*;
+        match cmd {
+            Application(a) => self.dispatch_app(a).await?,
+            Dump(path) => {
+                if path == "-" {
+                    self.dump(std::io::stderr())
+                } else if let Ok(f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                {
+                    self.dump(f);
+                } else {
+                    self.dump(std::io::stderr());
+                }
+            }
+            FbDumpToDir(path) => {
                 let fbs = self.driver.extract_framebuffers()
                     .context("Could not retrieve framebuffers")?;
 
@@ -150,30 +181,22 @@ impl Ctl {
                     }
                 });
             }
-            Command::Dump(path) => {
-                if path == "-" {
-                    self.dump(std::io::stderr())
-                } else if let Ok(f) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(path)
-                {
-                    self.dump(f);
-                } else {
-                    self.dump(std::io::stderr());
-                }
+            GlobalRefresh => {
+                self.driver.global_refresh()
+                    .context("RockchipEbc::global_refresh failed")?;
             }
-            Command::Property(p) => {
+            Property(p) => {
                 self.dispatch_props(p).await?;
             }
+            Window(w) => self.dispatch_window(w).await?,
         };
 
         Ok(())
     }
 
-    pub async fn serve(&mut self, mut rx: mpsc::Receiver<Command>) {
+    pub async fn serve(&mut self, mut rx: mpsc::Receiver<cmd::Command>) {
         while let Some(cmd) = rx.recv().await {
-            let ctx = cmd.get_context_str();
+            let ctx = cmd.get_command_str();
 
             if let Err(e) = self.dispatch(cmd).await
                 .with_context(|| format!("While handling {ctx}"))
