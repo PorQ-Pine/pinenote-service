@@ -13,7 +13,7 @@ use crate::{
     },
     types::{
         Rect,
-        rockchip_ebc::{DitheringMethod, FrameBuffers, Hint, Mode},
+        rockchip_ebc::{DitherMode, FrameBuffers, Hint, Mode},
     },
 };
 
@@ -38,7 +38,7 @@ pub struct RockchipEbc {
     limit_fb_blits: Int32,
     no_off_screen: Boolean,
     refresh_thread_wait_idle: Int32,
-    dithering_method: RGeneric<DitheringMethod>,
+    dithering_method: RGeneric<DitherMode>,
     bw_threshold: RInt32,
     y2_dt_threshold: Int32,
     y2_th_threshold: Int32,
@@ -78,7 +78,7 @@ impl RockchipEbc {
     }
 
     /// Get the method used for dithering
-    pub fn dithering_method(&self) -> Result<DitheringMethod, crate::sysfs::attribute::Error> {
+    pub fn dithering_method(&self) -> Result<DitherMode, crate::sysfs::attribute::Error> {
         self.dithering_method.read()
     }
 
@@ -143,7 +143,7 @@ impl RockchipEbc {
         Ok(fbs)
     }
 
-    pub fn driver_mode(&self) -> Result<Mode, DriverError> {
+    pub fn mode(&self) -> Result<Mode, DriverError> {
         let file = ioctls::open_device(Self::DEV_PATH)?;
         let mut data = ioctls::rockchip_ebc::Mode::new();
 
@@ -154,7 +154,7 @@ impl RockchipEbc {
         Ok(data.into())
     }
 
-    pub fn set_driver_mode(&self, mode: Mode) -> Result<(), DriverError> {
+    pub fn set_mode(&self, mode: Mode) -> Result<(), DriverError> {
         let file = ioctls::open_device(Self::DEV_PATH)?;
         let mut data = mode.into();
 

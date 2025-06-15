@@ -38,7 +38,7 @@ pub enum Error {
     #[error("Unsupported convert mode")]
     ConvertMode(#[from] TryFromPrimitiveError<HintConvertMode>),
     #[error("Unsupported dithering method")]
-    Method(#[from] TryFromPrimitiveError<DitheringMethod>),
+    Method(#[from] TryFromPrimitiveError<DitherMode>),
     #[error("Unsupported value")]
     DclkSelect(#[from] TryFromPrimitiveError<DclkSelect>),
     #[error("Invalid value.")]
@@ -157,13 +157,13 @@ impl Debug for Hint {
 
 #[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy)]
 #[repr(u8)]
-pub enum DitheringMethod {
+pub enum DitherMode {
     Bayer = 0,
     BlueNoise16 = 1,
     BlueNoise32 = 2,
 }
 
-impl FromStr for DitheringMethod {
+impl FromStr for DitherMode {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -180,9 +180,10 @@ pub enum DriverMode {
     ZeroWaveform = 8,
 }
 
+#[derive(Default)]
 pub struct Mode {
     pub driver_mode: Option<DriverMode>,
-    pub dither_mode: Option<DitheringMethod>,
+    pub dither_mode: Option<DitherMode>,
     pub redraw_delay: Option<u16>,
 }
 
@@ -196,7 +197,7 @@ impl From<ioctls::rockchip_ebc::Mode> for Mode {
             }
         };
 
-        let dither_mode = match DitheringMethod::try_from_primitive(value.dither_mode) {
+        let dither_mode = match DitherMode::try_from_primitive(value.dither_mode) {
             Ok(dither) => Some(dither),
             Err(e) => {
                 eprintln!("Bad dithering mode '{}': {:?}", value.dither_mode, e);
