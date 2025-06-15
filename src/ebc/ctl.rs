@@ -2,7 +2,9 @@ use std::{io::Write, path::PathBuf, time::SystemTime};
 
 use anyhow::{Context, Result, anyhow};
 use pinenote_service::{
-    drivers::rockchip_ebc::RockchipEbc, pixel_manager as pm, types::rockchip_ebc::FrameBuffers,
+    drivers::rockchip_ebc::RockchipEbc,
+    pixel_manager as pm,
+    types::rockchip_ebc::{FrameBuffers, Mode},
 };
 use tokio::{io::AsyncWriteExt, sync::mpsc};
 
@@ -108,6 +110,47 @@ impl Ctl {
                 self.pixel_manager.default_hint = h;
 
                 self.recompute_hints()?;
+            }
+            DriverMode(tx) => {
+                let Mode { driver_mode, .. } = self.driver.mode()?;
+
+                let dm = driver_mode.ok_or(anyhow!("No DriverMode found."))?;
+                tx.send(dm)
+                    .map_err(|_| anyhow!("Failed to send back driver mode"))?;
+            }
+            SetDriverMode(mode) => {
+                self.driver.set_mode(Mode {
+                    driver_mode: Some(mode),
+                    ..Default::default()
+                })?;
+            }
+            DitherMode(tx) => {
+                let Mode { dither_mode, .. } = self.driver.mode()?;
+
+                let dm = dither_mode.ok_or(anyhow!("No DitherMode found"))?;
+
+                tx.send(dm)
+                    .map_err(|_| anyhow!("Failed to send dither mode back"))?;
+            }
+            SetDitherMode(dith) => {
+                self.driver.set_mode(Mode {
+                    dither_mode: Some(dith),
+                    ..Default::default()
+                })?;
+            }
+            RedrawDelay(tx) => {
+                let Mode { redraw_delay, .. } = self.driver.mode()?;
+
+                let rd = redraw_delay.ok_or(anyhow!("No redraw delay found"))?;
+
+                tx.send(rd)
+                    .map_err(|_| anyhow!("Failed to send redraw delay back"))?;
+            }
+            SetRedrawDelay(rd) => {
+                self.driver.set_mode(Mode {
+                    redraw_delay: Some(rd),
+                    ..Default::default()
+                })?;
             }
         }
 
@@ -220,6 +263,13 @@ impl Ctl {
             }
             Property(p) => {
                 self.dispatch_props(p).await?;
+            }
+            SetMode(dr, di, rd) => {
+                self.driver.set_mode(Mode {
+                    driver_mode: Some(dr),
+                    dither_mode: Some(di),
+                    redraw_delay: Some(rd),
+                })?;
             }
             Window(w) => self.dispatch_window(w).await?,
         };

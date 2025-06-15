@@ -1,6 +1,9 @@
 use anyhow::Context;
 use nix::libc::pid_t;
-use pinenote_service::types::{Rect, rockchip_ebc::Hint};
+use pinenote_service::types::{
+    Rect,
+    rockchip_ebc::{DitherMode, DriverMode, Hint},
+};
 use tokio::sync::{mpsc, oneshot};
 
 pub enum Command {
@@ -9,6 +12,7 @@ pub enum Command {
     FbDumpToDir(String),
     GlobalRefresh,
     Property(Property),
+    SetMode(DriverMode, DitherMode, u16),
     Window(Window),
 }
 
@@ -20,6 +24,12 @@ pub enum Application {
 pub enum Property {
     DefaultHint(oneshot::Sender<Hint>),
     SetDefaultHint(Hint),
+    DriverMode(oneshot::Sender<DriverMode>),
+    SetDriverMode(DriverMode),
+    DitherMode(oneshot::Sender<DitherMode>),
+    SetDitherMode(DitherMode),
+    RedrawDelay(oneshot::Sender<u16>),
+    SetRedrawDelay(u16),
 }
 
 pub enum Window {
@@ -57,6 +67,7 @@ impl CommandStr for Command {
             FbDumpToDir(_) => "FrameBufferDumpToDir".into(),
             GlobalRefresh => "GlobalRefresh".into(),
             Property(p) => format!("Property::{}", p.get_command_str()),
+            SetMode(_, _, _) => "SetMode".into(),
             Window(w) => format!("Window::{}", w.get_command_str()),
         }
     }
@@ -74,10 +85,15 @@ impl CommandStr for Application {
 impl CommandStr for Property {
     fn get_command_str(&self) -> String {
         use self::Property::*;
-
         match self {
             DefaultHint(_) => "DefaultHint::Get".into(),
             SetDefaultHint(_) => "DefaultHint::Set".into(),
+            DriverMode(_) => "DriverMode::Get".into(),
+            SetDriverMode(_) => "DriverMode::Set".into(),
+            DitherMode(_) => "DitherMode::Get".into(),
+            SetDitherMode(_) => "DitherMode::Set".into(),
+            RedrawDelay(_) => "RedrawDelay::Get".into(),
+            SetRedrawDelay(_) => "RedrawDelay::Set".into(),
         }
     }
 }
