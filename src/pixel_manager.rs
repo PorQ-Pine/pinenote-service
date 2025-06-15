@@ -63,12 +63,16 @@
 //! [driver]: crate::drivers::rockchip_ebc::RockchipEbc
 //! [rendering mode]: crate::types::rockchip_ebc::Hint
 
-use thiserror::Error;
 use std::collections::{HashMap, HashSet};
+use thiserror::Error;
 
 use nix::libc::pid_t;
 
-use crate::types::{rockchip_ebc::{Hint, RectHint}, ztree::{ZSurface, ZTree}, Rect};
+use crate::types::{
+    Rect,
+    rockchip_ebc::{Hint, RectHint},
+    ztree::{ZSurface, ZTree},
+};
 
 /// Application representation.
 ///
@@ -79,7 +83,7 @@ pub struct Application {
     app_id: String,
     pid: pid_t,
     default_hint: Option<Hint>,
-    windows: HashSet<String>
+    windows: HashSet<String>,
 }
 
 impl Application {
@@ -89,7 +93,7 @@ impl Application {
             app_id: app_id.into(),
             pid,
             default_hint: None,
-            windows: Default::default()
+            windows: Default::default(),
         }
     }
 
@@ -99,7 +103,7 @@ impl Application {
             app_id: app_id.into(),
             pid,
             default_hint,
-            windows: Default::default()
+            windows: Default::default(),
         }
     }
 
@@ -109,12 +113,12 @@ impl Application {
     }
 
     /// Add a window to the Application
-    fn window_add(&mut self, win_uid: String)  {
+    fn window_add(&mut self, win_uid: String) {
         self.windows.insert(win_uid);
     }
 
     /// Delete an Application window
-    fn window_remove(&mut self, win_uid: &String)  {
+    fn window_remove(&mut self, win_uid: &String) {
         self.windows.remove(win_uid);
     }
 }
@@ -136,8 +140,7 @@ pub struct WindowData {
 pub struct Window {
     uid: String,
     app_key: String,
-    pub data: WindowData
-    //sub_surface: Vec<Surface>
+    pub data: WindowData, //sub_surface: Vec<Surface>
 }
 
 impl Window {
@@ -162,15 +165,19 @@ impl Window {
                 hint,
                 visible,
                 z_index,
-            }
+            },
         }
     }
 
     pub fn zsurface(&self, screen_area: &Rect) -> Option<ZSurface> {
         if self.data.visible {
-            self.data.area.intersection(screen_area)
+            self.data
+                .area
+                .intersection(screen_area)
                 .map(|rect| ZSurface::new(self.data.z_index, self.uid.clone(), rect))
-        } else { None }
+        } else {
+            None
+        }
     }
 
     pub fn update(&mut self, data: WindowData) {
@@ -181,14 +188,14 @@ impl Window {
 #[derive(Debug, PartialEq, Default)]
 pub struct ComputedHints {
     pub default_hint: Option<Hint>,
-    pub rect_hints: Vec<RectHint>
+    pub rect_hints: Vec<RectHint>,
 }
 
 impl ComputedHints {
     pub fn new() -> Self {
         Self {
             default_hint: None,
-            rect_hints: Default::default()
+            rect_hints: Default::default(),
         }
     }
 
@@ -202,14 +209,14 @@ impl ComputedHints {
 
 /// Manage per pixel hints
 #[derive(Debug)]
-pub struct PixelManager{
+pub struct PixelManager {
     /// Default Hints to use for uncovered pixels
     pub default_hint: Hint,
     /// Rectangle representing the full screen.
     screen_area: Rect,
 
     applications: HashMap<String, Application>,
-    windows: HashMap<String, Window>
+    windows: HashMap<String, Window>,
 }
 
 #[derive(Error, Debug, PartialEq)]
@@ -226,16 +233,20 @@ impl PixelManager {
             default_hint,
             screen_area,
             applications: Default::default(),
-            windows: Default::default()
+            windows: Default::default(),
         }
     }
 
     pub fn app(&self, app_key: &String) -> Result<&Application, PixelManagerError> {
-        self.applications.get(app_key).ok_or(PixelManagerError::UnknownApp(app_key.to_owned()))
+        self.applications
+            .get(app_key)
+            .ok_or(PixelManagerError::UnknownApp(app_key.to_owned()))
     }
 
     pub fn app_mut(&mut self, app_key: &String) -> Result<&mut Application, PixelManagerError> {
-        self.applications.get_mut(app_key).ok_or(PixelManagerError::UnknownApp(app_key.to_owned()))
+        self.applications
+            .get_mut(app_key)
+            .ok_or(PixelManagerError::UnknownApp(app_key.to_owned()))
     }
 
     /// Add a new Application to the controller
@@ -251,7 +262,9 @@ impl PixelManager {
 
     /// Remove an Application and its associated Window.
     pub fn app_remove(&mut self, app_key: &String) {
-        let Some(app) = self.applications.remove(app_key) else { return; };
+        let Some(app) = self.applications.remove(app_key) else {
+            return;
+        };
 
         for win_key in app.windows {
             self.windows.remove(&win_key);
@@ -282,11 +295,15 @@ impl PixelManager {
     }
 
     pub fn window(&self, win_key: &String) -> Result<&Window, PixelManagerError> {
-        self.windows.get(win_key).ok_or(PixelManagerError::UnknownWindow(win_key.to_owned()))
+        self.windows
+            .get(win_key)
+            .ok_or(PixelManagerError::UnknownWindow(win_key.to_owned()))
     }
 
     pub fn window_mut(&mut self, win_key: &String) -> Result<&mut Window, PixelManagerError> {
-        self.windows.get_mut(win_key).ok_or(PixelManagerError::UnknownWindow(win_key.to_owned()))
+        self.windows
+            .get_mut(win_key)
+            .ok_or(PixelManagerError::UnknownWindow(win_key.to_owned()))
     }
 
     /// Add a new window, and link it to an application.
@@ -301,7 +318,8 @@ impl PixelManager {
         if !self.windows.contains_key(&window.uid) {
             self.windows.insert(uid.clone(), window);
 
-            self.applications.entry(app_key.to_owned())
+            self.applications
+                .entry(app_key.to_owned())
                 .and_modify(|a| a.window_add(uid.clone()));
         }
 
@@ -310,13 +328,21 @@ impl PixelManager {
 
     /// Remove a window using its key.
     pub fn window_remove(&mut self, win_uid: String) {
-        let Some(win) = self.windows.remove(&win_uid) else { return; };
+        let Some(win) = self.windows.remove(&win_uid) else {
+            return;
+        };
         let app_key = win.app_key;
 
-        self.applications.entry(app_key).and_modify(|a| a.window_remove(&win_uid));
+        self.applications
+            .entry(app_key)
+            .and_modify(|a| a.window_remove(&win_uid));
     }
 
-    pub fn window_update(&mut self, win_key: &String, data: WindowData) -> Result<(), PixelManagerError> {
+    pub fn window_update(
+        &mut self,
+        win_key: &String,
+        data: WindowData,
+    ) -> Result<(), PixelManagerError> {
         let window = self.window_mut(win_key)?;
 
         window.update(data);
@@ -325,7 +351,11 @@ impl PixelManager {
     }
 
     /// Set a window specific hint.
-    pub fn window_set_hint(&mut self, win_key: &String, hint: Hint) -> Result<(), PixelManagerError> {
+    pub fn window_set_hint(
+        &mut self,
+        win_key: &String,
+        hint: Hint,
+    ) -> Result<(), PixelManagerError> {
         let win = self.window_mut(win_key)?;
 
         win.data.hint = Some(hint);
@@ -361,17 +391,27 @@ impl PixelManager {
     pub fn compute_hints(&self) -> Result<ComputedHints, PixelManagerError> {
         let mut ret = ComputedHints::with_hint(self.default_hint);
 
-        let ztree = self.windows.values()
+        let ztree = self
+            .windows
+            .values()
             .filter_map(|w| w.zsurface(&self.screen_area))
             .fold(ZTree::new(), |mut tree, s| {
                 tree.insert(s);
                 tree
-                });
+            });
 
-        ret.rect_hints = ztree.flatten()
+        ret.rect_hints = ztree
+            .flatten()
             .into_iter()
-            .map(|ZSurface { area: rect, reference, .. }|
-                self.window_hint_fallback(&reference).map(|hint| RectHint { rect, hint })
+            .map(
+                |ZSurface {
+                     area: rect,
+                     reference,
+                     ..
+                 }| {
+                    self.window_hint_fallback(&reference)
+                        .map(|hint| RectHint { rect, hint })
+                },
             )
             .collect::<Result<_, _>>()?;
 
@@ -382,15 +422,11 @@ impl PixelManager {
 #[cfg(test)]
 #[allow(dead_code)]
 mod tests {
-    use crate::types::{
-        rockchip_ebc::{
-            Hint,
-            HintBitDepth as BitDepth,
-            HintConvertMode as HintConvertMode
-        },
-        Rect
-    };
     use super::*;
+    use crate::types::{
+        Rect,
+        rockchip_ebc::{Hint, HintBitDepth as BitDepth, HintConvertMode},
+    };
 
     const Y4DITHER_REDRAW: Hint = Hint::new(BitDepth::Y4, HintConvertMode::Dither, true);
     const Y4DITHER: Hint = Hint::new(BitDepth::Y4, HintConvertMode::Dither, false);
@@ -434,19 +470,17 @@ mod tests {
             win_rect.clone(),
             Some(win_hint),
             true,
-            0
+            0,
         );
 
         mgr.window_add(win)?;
 
         let expected = ComputedHints {
             default_hint: Some(mgr.default_hint),
-            rect_hints: vec![
-                RectHint {
-                    hint: win_hint,
-                    rect: Rect::new(1000, 1000, SCREEN_RECT.x2, SCREEN_RECT.y2)
-                }
-            ]
+            rect_hints: vec![RectHint {
+                hint: win_hint,
+                rect: Rect::new(1000, 1000, SCREEN_RECT.x2, SCREEN_RECT.y2),
+            }],
         };
 
         assert_eq!(expected, mgr.compute_hints()?);
@@ -464,10 +498,13 @@ mod tests {
             Rect::new(100, 100, 200, 200),
             Some(Y2DITHER),
             true,
-            0
+            0,
         );
 
-        assert_eq!(Err(PixelManagerError::UnknownApp("test_app:1234".to_string())), mgr.window_add(win));
+        assert_eq!(
+            Err(PixelManagerError::UnknownApp("test_app:1234".to_string())),
+            mgr.window_add(win)
+        );
 
         Ok(())
     }
@@ -483,8 +520,8 @@ mod tests {
             default_hint: Some(mgr.default_hint),
             rect_hints: vec![RectHint {
                 rect: win_rect.clone(),
-                hint: win_hint
-            }]
+                hint: win_hint,
+            }],
         };
 
         let app = Application::new("testapp", 1234);
@@ -496,7 +533,7 @@ mod tests {
             win_rect.clone(),
             Some(win_hint),
             true,
-            0
+            0,
         );
 
         mgr.window_add(win)?;
@@ -515,7 +552,7 @@ mod tests {
 
         let expected = ComputedHints {
             default_hint: Some(mgr.default_hint),
-            rect_hints: vec![]
+            rect_hints: vec![],
         };
 
         let app = Application::new("testapp", 1234);
@@ -527,7 +564,7 @@ mod tests {
             win_rect.clone(),
             Some(win_hint),
             false,
-            0
+            0,
         );
 
         mgr.window_add(win)?;
@@ -549,8 +586,8 @@ mod tests {
             default_hint: Some(mgr.default_hint),
             rect_hints: vec![RectHint {
                 rect: win_rect.clone(),
-                hint: app_hint
-            }]
+                hint: app_hint,
+            }],
         };
 
         let app_key = mgr.app_add(Application::with_hint("testapp", 1234, Some(app_hint)));
@@ -561,7 +598,7 @@ mod tests {
             win_rect.clone(),
             None,
             true,
-            0
+            0,
         ))?;
 
         assert_eq!(expected, mgr.compute_hints()?);
@@ -579,8 +616,8 @@ mod tests {
             default_hint: Some(Y4DITHER_REDRAW),
             rect_hints: vec![RectHint {
                 rect: win_rect.clone(),
-                hint: Y4DITHER_REDRAW
-            }]
+                hint: Y4DITHER_REDRAW,
+            }],
         };
 
         let app_key = mgr.app_add(Application::new("testapp", 1234));
@@ -591,7 +628,7 @@ mod tests {
             win_rect.clone(),
             None,
             true,
-            0
+            0,
         ))?;
 
         assert_eq!(expected, mgr.compute_hints()?);
@@ -614,14 +651,13 @@ mod tests {
             rect_hint1.rect.clone(),
             Some(rect_hint1.hint),
             true,
-            5
+            5,
         );
         mgr.window_add(window1)?;
 
-
         let rect_hint2 = RectHint {
             rect: Rect::new(100, 100, 600, 600),
-            hint: Y2DITHER_REDRAW
+            hint: Y2DITHER_REDRAW,
         };
         let app_key = mgr.app_add(Application::new("testapp", 1235));
         let window2 = Window::new(
@@ -630,13 +666,13 @@ mod tests {
             rect_hint2.rect.clone(),
             Some(rect_hint2.hint),
             true,
-            3
+            3,
         );
         mgr.window_add(window2)?;
 
         let rect_hint3 = RectHint {
             rect: Rect::new(0, 0, 400, 400),
-            hint: Y4DITHER
+            hint: Y4DITHER,
         };
         let app_key = mgr.app_add(Application::new("testapp", 1236));
         let window3 = Window::new(
@@ -645,13 +681,13 @@ mod tests {
             rect_hint3.rect.clone(),
             Some(rect_hint3.hint),
             true,
-            4
+            4,
         );
         mgr.window_add(window3)?;
 
         let expected = ComputedHints {
             default_hint: Some(mgr.default_hint),
-            rect_hints: vec![rect_hint2, rect_hint3, rect_hint1]
+            rect_hints: vec![rect_hint2, rect_hint3, rect_hint1],
         };
 
         assert_eq!(expected, mgr.compute_hints()?);
@@ -674,13 +710,13 @@ mod tests {
             rect_hint1.rect.clone(),
             Some(rect_hint1.hint),
             true,
-            0
+            0,
         );
         mgr.window_add(window1)?;
 
         let rect_hint2 = RectHint {
             rect: Rect::new(100, 100, 600, 600),
-            hint: Y2DITHER_REDRAW
+            hint: Y2DITHER_REDRAW,
         };
         let app_key = mgr.app_add(Application::new("testapp", 1235));
         let window2 = Window::new(
@@ -689,13 +725,13 @@ mod tests {
             rect_hint2.rect.clone(),
             Some(rect_hint2.hint),
             true,
-            1
+            1,
         );
         mgr.window_add(window2)?;
 
         let expected = ComputedHints {
             default_hint: Some(mgr.default_hint),
-            rect_hints: vec![rect_hint2]
+            rect_hints: vec![rect_hint2],
         };
 
         assert_eq!(expected, mgr.compute_hints()?);

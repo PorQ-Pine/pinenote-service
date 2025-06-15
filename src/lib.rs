@@ -8,8 +8,8 @@ pub mod drivers {
 }
 
 pub mod ioctls {
-    use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt, path::Path};
     use nix::libc;
+    use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt, path::Path};
     use thiserror::Error;
 
     pub mod drm {
@@ -25,7 +25,7 @@ pub mod ioctls {
             /// Ending horizontal coordinate(exclusive)
             pub x2: i32,
             /// Ending vertical coordinate(exclusive)
-            pub y2: i32
+            pub y2: i32,
         }
 
         pub mod rockchip_ebc;
@@ -33,12 +33,11 @@ pub mod ioctls {
 
     pub use drm::rockchip_ebc;
 
-
     #[derive(Error, Debug)]
     #[error("Could not open device at '{path}'")]
     pub struct OpenError {
         path: String,
-        source: std::io::Error
+        source: std::io::Error,
     }
 
     pub fn open_device(path: impl AsRef<Path>) -> Result<std::fs::File, OpenError> {
@@ -47,7 +46,7 @@ pub mod ioctls {
             .write(true)
             .custom_flags(libc::O_NONBLOCK)
             .open(&path)
-            .map_err(|source|  {
+            .map_err(|source| {
                 let path = path.as_ref().to_string_lossy().to_string();
                 OpenError { path, source }
             })
@@ -55,8 +54,8 @@ pub mod ioctls {
 }
 
 pub mod types {
-    pub mod rockchip_ebc;
     pub mod rect;
+    pub mod rockchip_ebc;
     pub use rect::Rect;
 
     pub mod ztree;

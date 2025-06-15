@@ -1,7 +1,10 @@
 //! Generic sysfs attributes
 
 use std::{
-    fs::OpenOptions, io::{self, Read, Write}, marker::PhantomData, str::FromStr
+    fs::OpenOptions,
+    io::{self, Read, Write},
+    marker::PhantomData,
+    str::FromStr,
 };
 
 use thiserror::Error;
@@ -11,7 +14,7 @@ pub enum Error {
     #[error(transparent)]
     IoError(#[from] io::Error),
     #[error("Error while converting value")]
-    ConvError
+    ConvError,
 }
 
 /// Base trait for attribues
@@ -49,7 +52,7 @@ pub trait RawWrite: AttributeBase {
         OpenOptions::new()
             .write(true)
             .open(path)
-            .and_then(|mut f| { write!(f, "{}", value.into()) } )?;
+            .and_then(|mut f| write!(f, "{}", value.into()))?;
 
         Ok(())
     }
@@ -63,15 +66,20 @@ pub trait TypedWrite: RawWrite {
 }
 
 /// Wrapper type to prevent an attribute from using any of the write* functions.
-pub struct ReadOnly<T> where T: RawRead {
-    attribute: T
+pub struct ReadOnly<T>
+where
+    T: RawRead,
+{
+    attribute: T,
 }
 
 impl<T: RawRead> AttributeBase for ReadOnly<T> {
-    fn path(&self) -> &str { self.attribute.path() }
+    fn path(&self) -> &str {
+        self.attribute.path()
+    }
     fn from_path(path: impl Into<String>) -> Self {
         Self {
-            attribute: T::from_path(path)
+            attribute: T::from_path(path),
         }
     }
 }
@@ -97,16 +105,21 @@ impl<T: RawRead> From<T> for ReadOnly<T> {
 }
 
 /// Wrapper restricting an attribute from using any of the read* functions.
-pub struct WriteOnly<T> where T: RawWrite {
+pub struct WriteOnly<T>
+where
+    T: RawWrite,
+{
     attribute: T,
 }
 
 impl<T: RawWrite> AttributeBase for WriteOnly<T> {
-    fn path(&self) -> &str { self.attribute.path() }
+    fn path(&self) -> &str {
+        self.attribute.path()
+    }
 
     fn from_path(path: impl Into<String>) -> Self {
         Self {
-            attribute: T::from_path(path)
+            attribute: T::from_path(path),
         }
     }
 }
@@ -137,7 +150,7 @@ impl<T: RawWrite> From<T> for WriteOnly<T> {
 /// as "Y/N" or "0/1" by the kernel, so a special parsing is needed.
 ///
 pub struct Boolean {
-    pub path: String
+    pub path: String,
 }
 
 impl AttributeBase for Boolean {
@@ -146,9 +159,7 @@ impl AttributeBase for Boolean {
     }
 
     fn from_path(path: impl Into<String>) -> Self {
-        Self {
-            path: path.into()
-        }
+        Self { path: path.into() }
     }
 }
 
@@ -164,7 +175,7 @@ impl TypedRead for Boolean {
         match repr.trim() {
             "Y" | "1" => Ok(true),
             "N" | "0" => Ok(false),
-            _ => Err(Error::ConvError)
+            _ => Err(Error::ConvError),
         }
     }
 }
@@ -180,7 +191,7 @@ impl TypedWrite for Boolean {
 /// Attribute with arbitrary implementation
 pub struct Generic<T> {
     pub path: String,
-    _phantom: PhantomData<T>
+    _phantom: PhantomData<T>,
 }
 
 impl<T> AttributeBase for Generic<T> {
@@ -191,7 +202,7 @@ impl<T> AttributeBase for Generic<T> {
     fn from_path(path: impl Into<String>) -> Self {
         Self {
             path: path.into(),
-            _phantom: Default::default()
+            _phantom: Default::default(),
         }
     }
 }
@@ -200,18 +211,20 @@ impl<T> RawRead for Generic<T> {}
 impl<T> RawWrite for Generic<T> {}
 
 impl<T> TypedRead for Generic<T>
-where T: FromStr {
+where
+    T: FromStr,
+{
     type Repr = T;
 
     fn read(&self) -> Result<Self::Repr, Error> {
-        self.read_raw()?.parse().map_err(|_| {
-            Error::ConvError
-        })
+        self.read_raw()?.parse().map_err(|_| Error::ConvError)
     }
 }
 
 impl<T> TypedWrite for Generic<T>
-where T: ToString {
+where
+    T: ToString,
+{
     type Repr = T;
     fn write(&self, value: Self::Repr) -> Result<(), Error> {
         self.write_raw(value.to_string())

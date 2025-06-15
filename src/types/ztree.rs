@@ -1,12 +1,12 @@
 use std::{collections::BTreeMap, ops::Bound};
 
-use super::{rect::SplitRect, Rect};
+use super::{Rect, rect::SplitRect};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ZSurface {
     pub z_index: i32,
     pub reference: String,
-    pub area: Rect
+    pub area: Rect,
 }
 
 impl ZSurface {
@@ -14,7 +14,7 @@ impl ZSurface {
         Self {
             z_index,
             reference: reference.into(),
-            area
+            area,
         }
     }
 }
@@ -45,17 +45,17 @@ impl ZLeaf {
 
     fn mask_in_place(&mut self, other: &Self) -> bool {
         let area = std::mem::take(&mut self.area);
-        let mut new_area = area.mask_with(&other.area.bounds().expect("Empty ZLeaf should not happen"));
+        let mut new_area =
+            area.mask_with(&other.area.bounds().expect("Empty ZLeaf should not happen"));
         std::mem::swap(&mut self.area, &mut new_area);
 
         !self.area.is_empty()
     }
-
 }
 
 #[derive(Debug, Default)]
 struct ZNode {
-    leaves: Vec<ZLeaf>
+    leaves: Vec<ZLeaf>,
 }
 
 impl ZNode {
@@ -76,7 +76,9 @@ pub struct ZTree {
 }
 
 impl ZTree {
-    pub fn new() -> Self { Default::default() }
+    pub fn new() -> Self {
+        Default::default()
+    }
 
     /// Insert a new area to the ZTree, at a giver Z-Layer
     ///
@@ -90,32 +92,40 @@ impl ZTree {
     /// On the other hand, rebuilding the lower-layers every iteration might not be good idea, but
     /// I don't want to bother with performance benchmark just yet.
     pub fn insert(&mut self, surface: ZSurface) -> bool {
-        let ZSurface {z_index, reference, area} = surface;
-        let Some(new_leaf) = self.nodes
+        let ZSurface {
+            z_index,
+            reference,
+            area,
+        } = surface;
+        let Some(new_leaf) = self
+            .nodes
             .range((Bound::Excluded(z_index), Bound::Unbounded))
             .flat_map(|(_, n)| &n.leaves)
-            .try_fold(ZLeaf::new(reference, area), |new_leaf, upper| new_leaf.mask(upper))
-            else { return false };
+            .try_fold(ZLeaf::new(reference, area), |new_leaf, upper| {
+                new_leaf.mask(upper)
+            })
+        else {
+            return false;
+        };
 
         // We split the tree because we may end up removing lower nodes altogether
         let mut upper = self.nodes.split_off(&z_index);
 
-        let mut lower = std::mem::take(&mut self.nodes).into_iter()
+        let mut lower = std::mem::take(&mut self.nodes)
+            .into_iter()
             .filter_map(|(k, mut n)| {
                 if n.mask_all_in_place(&new_leaf) {
                     Some((k, n))
-                } else { None }
-            }).collect::<BTreeMap<_, _>>();
+                } else {
+                    None
+                }
+            })
+            .collect::<BTreeMap<_, _>>();
 
-        upper.entry(z_index).or_default()
-            .leaves
-            .push(new_leaf);
+        upper.entry(z_index).or_default().leaves.push(new_leaf);
 
         lower.append(&mut upper);
-        std::mem::swap(
-            &mut self.nodes,
-            &mut lower
-        );
+        std::mem::swap(&mut self.nodes, &mut lower);
 
         true
     }
@@ -128,16 +138,18 @@ impl ZTree {
 
 impl From<ZTree> for Vec<ZSurface> {
     fn from(value: ZTree) -> Self {
-        value.nodes.into_iter()
-            .flat_map(|(z_index, n)| n.leaves.into_iter()
-                .filter_map(move |l| l.area.bounds()
-                    .map(|area| ZSurface {
+        value
+            .nodes
+            .into_iter()
+            .flat_map(|(z_index, n)| {
+                n.leaves.into_iter().filter_map(move |l| {
+                    l.area.bounds().map(|area| ZSurface {
                         z_index,
                         reference: l.reference,
-                        area
+                        area,
                     })
-                )
-            )
+                })
+            })
             .collect()
     }
 }
@@ -252,7 +264,9 @@ mod tests {
         let lowest_surface = ZSurface::new(1, "surface2", Rect::new(100, 0, 200, 200));
 
         surfaces.sort_by_key(|s| s.z_index);
-        let expected: Vec<_> = std::iter::once(lowest_surface).chain(surfaces.into_iter().skip(1)).collect();
+        let expected: Vec<_> = std::iter::once(lowest_surface)
+            .chain(surfaces.into_iter().skip(1))
+            .collect();
 
         assert_eq!(expected, tree.flatten())
     }
@@ -264,7 +278,7 @@ mod tests {
         let surfaces = vec![
             ZSurface::new(1, "surface1", Rect::new(0, 0, 200, 200)),
             ZSurface::new(2, "surface2", Rect::new(50, 0, 150, 100)),
-            ZSurface::new(3, "surface3", Rect::new(0, 100, 200, 200))
+            ZSurface::new(3, "surface3", Rect::new(0, 100, 200, 200)),
         ];
 
         for s in surfaces.iter().cloned() {
@@ -272,7 +286,9 @@ mod tests {
         }
 
         let expected_lowest = ZSurface::new(1, "surface1", Rect::new(0, 0, 200, 100));
-        let expected: Vec<_> = std::iter::once(expected_lowest).chain(surfaces.into_iter().skip(1)).collect();
+        let expected: Vec<_> = std::iter::once(expected_lowest)
+            .chain(surfaces.into_iter().skip(1))
+            .collect();
 
         assert_eq!(expected, tree.flatten())
     }

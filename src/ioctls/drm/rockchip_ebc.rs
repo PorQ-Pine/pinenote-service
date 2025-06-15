@@ -2,11 +2,8 @@
 //!
 //! Provides binding and objects to call ioctl on hrdl's flavor of rockchip_ebc
 
-use nix::{
-    ioctl_readwrite,
-    ioctl_write_ptr
-};
 use crate::ioctls::drm;
+use nix::{ioctl_readwrite, ioctl_write_ptr};
 
 #[allow(clippy::identity_op)]
 const GLOBAL_REFRESH_NR: u8 = drm::COMMAND_BASE + 0x00;
@@ -58,7 +55,7 @@ pub struct RectHint {
     pub pixel_hints: u8,
     pub _padding: [u8; 7],
     /// Rectangular region of pixel, in screen coordinate
-    pub rect: drm::Rect
+    pub rect: drm::Rect,
 }
 
 /// [rect_hints_iow] parameter type.
@@ -83,13 +80,13 @@ ioctl_write_ptr!(
 #[derive(Default)]
 #[repr(C)]
 pub struct Mode {
-	pub set_driver_mode: u8,
-	pub driver_mode: u8,
-	pub set_dither_mode: u8,
-	pub dither_mode: u8,
-	pub redraw_delay: u16,
-	pub set_redraw_delay: u8,
-	pub _pad: u8,
+    pub set_driver_mode: u8,
+    pub driver_mode: u8,
+    pub set_dither_mode: u8,
+    pub dither_mode: u8,
+    pub redraw_delay: u16,
+    pub set_redraw_delay: u8,
+    pub _pad: u8,
 }
 ioctl_readwrite!(
     /// Query or set driver mode, dither mode and redraw delays

@@ -15,14 +15,14 @@ use super::Rect;
 pub enum HintBitDepth {
     Y1 = 0,
     Y2 = 1,
-    Y4 = 2
+    Y4 = 2,
 }
 
 #[derive(TryFromPrimitive, IntoPrimitive, Clone, Copy, Type, Value)]
 #[repr(u8)]
 pub enum HintConvertMode {
     Threshold = 0,
-    Dither = 1
+    Dither = 1,
 }
 
 #[derive(Error, Debug)]
@@ -38,22 +38,21 @@ pub enum Error {
     #[error("Unsupported value")]
     DclkSelect(#[from] TryFromPrimitiveError<DclkSelect>),
     #[error("Invalid value.")]
-    Invalid
-
+    Invalid,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Hint {
-    repr: u8
+    repr: u8,
 }
 
 impl Hint {
-    const BIT_DEPTH_SHIFT : u8 = 4;
-    const BIT_DEPTH_MASK : u8 = 3 << Self::BIT_DEPTH_SHIFT;
-    const CONVERT_SHIFT : u8 = 6;
-    const CONVERT_MASK : u8 = 1 << Self::CONVERT_SHIFT;
-    const REDRAW_SHIFT : u8 = 7;
-    const REDRAW_MASK : u8 = 1 << Self::REDRAW_SHIFT;
+    const BIT_DEPTH_SHIFT: u8 = 4;
+    const BIT_DEPTH_MASK: u8 = 3 << Self::BIT_DEPTH_SHIFT;
+    const CONVERT_SHIFT: u8 = 6;
+    const CONVERT_MASK: u8 = 1 << Self::CONVERT_SHIFT;
+    const REDRAW_SHIFT: u8 = 7;
+    const REDRAW_MASK: u8 = 1 << Self::REDRAW_SHIFT;
 
     pub const fn new(bit_depth: HintBitDepth, convert_mode: HintConvertMode, redraw: bool) -> Self {
         let bit_depth = (bit_depth as u8) << Self::BIT_DEPTH_SHIFT;
@@ -61,7 +60,7 @@ impl Hint {
         let redraw = (redraw as u8) << Self::REDRAW_SHIFT;
 
         Self {
-            repr: bit_depth | convert_mode | redraw
+            repr: bit_depth | convert_mode | redraw,
         }
     }
 
@@ -108,7 +107,7 @@ impl FromStr for Hint {
 
         let mask = !(Self::BIT_DEPTH_MASK | Self::CONVERT_MASK | Self::REDRAW_MASK);
         if (repr & mask) != 0 {
-            return Err(Error::Invalid)
+            return Err(Error::Invalid);
         }
 
         let bit_depth = Self::extract_bit_depth(repr);
@@ -130,7 +129,7 @@ impl Display for Hint {
         let depth = match self.bit_depth() {
             HintBitDepth::Y4 => "Y4",
             HintBitDepth::Y2 => "Y2",
-            HintBitDepth::Y1 => "Y1"
+            HintBitDepth::Y1 => "Y1",
         };
 
         let convert = match self.convert_mode() {
@@ -148,7 +147,7 @@ impl Display for Hint {
 pub enum DitheringMethod {
     Bayer = 0,
     BlueNoise16 = 1,
-    BlueNoise32 = 2
+    BlueNoise32 = 2,
 }
 
 impl FromStr for DitheringMethod {
@@ -171,7 +170,7 @@ pub enum DriverMode {
 pub struct Mode {
     pub driver_mode: Option<DriverMode>,
     pub dither_mode: Option<DitheringMethod>,
-    pub redraw_delay: Option<u16>
+    pub redraw_delay: Option<u16>,
 }
 
 impl From<ioctls::rockchip_ebc::Mode> for Mode {
@@ -230,7 +229,7 @@ impl From<Mode> for ioctls::rockchip_ebc::Mode {
 pub enum DclkSelect {
     Mode = -1,
     Mhz200 = 0,
-    Mhz250 = 1
+    Mhz250 = 1,
 }
 
 impl FromStr for DclkSelect {
@@ -258,7 +257,7 @@ impl From<RectHint> for ioctls::rockchip_ebc::RectHint {
         Self {
             pixel_hints: hint.into(),
             _padding: Default::default(),
-            rect
+            rect,
         }
     }
 }
@@ -268,12 +267,12 @@ pub struct FrameBuffers {
     hints: Vec<u8>,
     prelim_target: Vec<u8>,
     phase1: Vec<u8>,
-    phase2: Vec<u8>
+    phase2: Vec<u8>,
 }
 
 impl FrameBuffers {
     pub fn new(width: i32, height: i32) -> Self {
-        let num_pixels : usize = width as usize * height as usize;
+        let num_pixels: usize = width as usize * height as usize;
 
         let inner_outer_nextprev: Vec<u8> = vec![0; 3 * num_pixels];
         let hints: Vec<u8> = vec![0; num_pixels];
@@ -286,7 +285,7 @@ impl FrameBuffers {
             hints,
             prelim_target,
             phase1,
-            phase2
+            phase2,
         }
     }
 
@@ -318,7 +317,7 @@ impl From<&mut FrameBuffers> for ioctls::rockchip_ebc::ExtractFBs {
             ptr_hints: value.hints.as_mut_ptr() as u64,
             ptr_prelim_target: value.prelim_target.as_mut_ptr() as u64,
             ptr_phase1: value.phase1.as_mut_ptr() as u64,
-            ptr_phase2: value.phase2.as_mut_ptr() as u64
+            ptr_phase2: value.phase2.as_mut_ptr() as u64,
         }
     }
 }

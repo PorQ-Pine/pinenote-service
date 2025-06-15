@@ -20,7 +20,9 @@ async fn main() -> Result<()> {
     let (tx, rx) = mpsc::channel(100);
     let mut ebc = ebc::Ctl::new()?;
 
-    tokio::spawn(async move { ebc.serve(rx).await; });
+    tokio::spawn(async move {
+        ebc.serve(rx).await;
+    });
 
     let pinenote_ctl = dbus::PineNoteCtl::new(tx.clone());
 
@@ -32,13 +34,15 @@ async fn main() -> Result<()> {
 
     let mut sway_bridge = bridge::sway::SwayBridge::new().await?;
 
-    tokio::spawn(async move { let _ = sway_bridge.run(tx.clone()).await; });
+    tokio::spawn(async move {
+        let _ = sway_bridge.run(tx.clone()).await;
+    });
 
     match signal::ctrl_c().await {
-        Ok(()) => {},
+        Ok(()) => {}
         Err(err) => {
             eprintln!("Unable to listen for shutdown signal: {}", err);
-        },
+        }
     };
 
     unimplemented!("Termination not implemented yet")

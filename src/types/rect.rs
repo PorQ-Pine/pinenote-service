@@ -5,7 +5,7 @@ pub struct Rect {
     pub x1: i32,
     pub y1: i32,
     pub x2: i32,
-    pub y2: i32
+    pub y2: i32,
 }
 
 impl Rect {
@@ -13,22 +13,16 @@ impl Rect {
         Self { x1, y1, x2, y2 }
     }
 
-    pub const fn from_xywh(x: i32, y: i32, w: i32, h:i32) -> Self {
+    pub const fn from_xywh(x: i32, y: i32, w: i32, h: i32) -> Self {
         Self::new(x, y, x + w, y + h)
     }
 
     pub fn intersect(&self, rhs: &Self) -> bool {
-        self.x1 <= rhs.x2 &&
-            self.x2 >= rhs.x1 &&
-            self.y1 <= rhs.y2 &&
-            self.y2 >= rhs.y1
+        self.x1 <= rhs.x2 && self.x2 >= rhs.x1 && self.y1 <= rhs.y2 && self.y2 >= rhs.y1
     }
 
     pub fn cover(&self, other: &Self) -> bool {
-        self.x1 <= other.x1 &&
-            self.y1 <= other.y1 &&
-            self.x2 >= other.x2 &&
-            self.y2 >= other.y2
+        self.x1 <= other.x1 && self.y1 <= other.y1 && self.x2 >= other.x2 && self.y2 >= other.y2
     }
 
     pub fn intersection(&self, other: &Self) -> Option<Self> {
@@ -36,7 +30,7 @@ impl Rect {
             i32::max(self.x1, other.x1),
             i32::max(self.y1, other.y1),
             i32::min(self.x2, other.x2),
-            i32::min(self.y2, other.y2)
+            i32::min(self.y2, other.y2),
         );
 
         if (inter.x2 - inter.x1) <= 0 || (inter.y2 - inter.y1) <= 0 {
@@ -58,15 +52,19 @@ impl SplitRect {
 
     /// Return the split rectangle bounding box
     pub fn bounds(&self) -> Option<Rect> {
-        if self.is_empty() { None } else {
+        if self.is_empty() {
+            None
+        } else {
             Some(self.0.iter().fold(
                 Rect::new(i32::MAX, i32::MAX, i32::MIN, i32::MIN),
-                |racc, r| Rect::new(
-                    i32::min(racc.x1, r.x1),
-                    i32::min(racc.y1, r.y1),
-                    i32::max(racc.x2, r.x2),
-                    i32::max(racc.y2, r.y2)
-                )
+                |racc, r| {
+                    Rect::new(
+                        i32::min(racc.x1, r.x1),
+                        i32::min(racc.y1, r.y1),
+                        i32::max(racc.x2, r.x2),
+                        i32::max(racc.y2, r.y2),
+                    )
+                },
             ))
         }
     }
@@ -74,23 +72,29 @@ impl SplitRect {
     /// Mask a rectangle with another, and return a split rectangle containing
     /// the unmasked parts.
     fn mask_rect(r: Rect, other: &Rect) -> Self {
-        let Some(inter) = r.intersection(other) else { return Self(vec![r]) };
+        let Some(inter) = r.intersection(other) else {
+            return Self(vec![r]);
+        };
 
         [
             Rect::new(r.x1, r.y1, inter.x1, inter.y2),
             Rect::new(inter.x1, r.y1, r.x2, inter.y1),
             Rect::new(inter.x2, inter.y1, r.x2, r.y2),
             Rect::new(r.x1, inter.y2, inter.x2, r.y2),
-        ].into_iter()
-            .filter(|r| (r.x2 - r.x1) > 0 && (r.y2 - r.y1) > 0)
-            .collect()
+        ]
+        .into_iter()
+        .filter(|r| (r.x2 - r.x1) > 0 && (r.y2 - r.y1) > 0)
+        .collect()
     }
 
     /// Create a new split rectangle by masking part of it.
     pub fn mask_with(self, other: &Rect) -> SplitRect {
-        Self(self.0.into_iter()
-            .flat_map(|r| Self::mask_rect(r, other))
-            .collect())
+        Self(
+            self.0
+                .into_iter()
+                .flat_map(|r| Self::mask_rect(r, other))
+                .collect(),
+        )
     }
 }
 
@@ -181,7 +185,7 @@ pub mod tests {
             Rect::new(100, 100, 120, 150),
             Rect::new(120, 100, 200, 130),
             Rect::new(140, 130, 200, 200),
-            Rect::new(100, 150, 140, 200)
+            Rect::new(100, 150, 140, 200),
         ]);
 
         assert_eq!(expected_bounds, res.bounds());
@@ -199,7 +203,7 @@ pub mod tests {
         let expected_bounds = Some(rect);
         let expected = SplitRect(vec![
             Rect::new(100, 100, 200, 130),
-            Rect::new(100, 150, 200, 200)
+            Rect::new(100, 150, 200, 200),
         ]);
 
         assert_eq!(expected_bounds, res.bounds());
@@ -217,7 +221,7 @@ pub mod tests {
         let expected_bounds = Some(rect);
         let expected = SplitRect(vec![
             Rect::new(100, 100, 120, 200),
-            Rect::new(140, 100, 200, 200)
+            Rect::new(140, 100, 200, 200),
         ]);
 
         assert_eq!(expected_bounds, res.bounds());
@@ -232,9 +236,7 @@ pub mod tests {
         let res = sr.mask_with(&r2);
 
         let expected_bounds = Some(Rect::new(100, 150, 200, 200));
-        let expected = SplitRect(vec![
-            Rect::new(100, 150, 200, 200),
-        ]);
+        let expected = SplitRect(vec![Rect::new(100, 150, 200, 200)]);
 
         assert_eq!(expected_bounds, res.bounds());
         assert_eq!(expected, res);
@@ -248,9 +250,7 @@ pub mod tests {
         let res = sr.mask_with(&r2);
 
         let expected_bounds = Some(Rect::new(150, 100, 200, 200));
-        let expected = SplitRect(vec![
-            Rect::new(150, 100, 200, 200)
-        ]);
+        let expected = SplitRect(vec![Rect::new(150, 100, 200, 200)]);
 
         assert_eq!(expected_bounds, res.bounds());
         assert_eq!(expected, res);
@@ -264,9 +264,7 @@ pub mod tests {
         let res = sr.mask_with(&r2);
 
         let expected_bounds = Some(Rect::new(100, 100, 150, 200));
-        let expected = SplitRect(vec![
-            Rect::new(100, 100, 150, 200)
-        ]);
+        let expected = SplitRect(vec![Rect::new(100, 100, 150, 200)]);
 
         assert_eq!(expected_bounds, res.bounds());
         assert_eq!(expected, res);
@@ -280,9 +278,7 @@ pub mod tests {
         let res = sr.mask_with(&r2);
 
         let expected_bounds = Some(Rect::new(100, 100, 200, 150));
-        let expected = SplitRect(vec![
-            Rect::new(100, 100, 200, 150),
-        ]);
+        let expected = SplitRect(vec![Rect::new(100, 100, 200, 150)]);
 
         assert_eq!(expected_bounds, res.bounds());
         assert_eq!(expected, res);
@@ -298,7 +294,7 @@ pub mod tests {
         let expected_bounds = Some(Rect::new(100, 100, 200, 200));
         let expected = SplitRect(vec![
             Rect::new(130, 100, 200, 200),
-            Rect::new(100, 150, 130, 200)
+            Rect::new(100, 150, 130, 200),
         ]);
 
         assert_eq!(expected_bounds, res.bounds());
@@ -315,7 +311,7 @@ pub mod tests {
         let expected_bounds = Some(Rect::new(100, 100, 200, 200));
         let expected = SplitRect(vec![
             Rect::new(100, 100, 130, 150),
-            Rect::new(100, 150, 200, 200)
+            Rect::new(100, 150, 200, 200),
         ]);
 
         assert_eq!(expected_bounds, res.bounds());
@@ -332,7 +328,7 @@ pub mod tests {
         let expected_bounds = Some(Rect::new(100, 100, 200, 200));
         let expected = SplitRect(vec![
             Rect::new(100, 100, 200, 120),
-            Rect::new(130, 120, 200, 200)
+            Rect::new(130, 120, 200, 200),
         ]);
 
         assert_eq!(expected_bounds, res.bounds());
@@ -349,7 +345,7 @@ pub mod tests {
         let expected_bounds = Some(Rect::new(100, 100, 200, 200));
         let expected = SplitRect(vec![
             Rect::new(100, 100, 110, 200),
-            Rect::new(110, 100, 200, 120)
+            Rect::new(110, 100, 200, 120),
         ]);
 
         assert_eq!(expected_bounds, res.bounds());
@@ -367,7 +363,7 @@ pub mod tests {
         let expected = SplitRect(vec![
             Rect::new(100, 100, 110, 130),
             Rect::new(150, 100, 200, 200),
-            Rect::new(100, 130, 150, 200)
+            Rect::new(100, 130, 150, 200),
         ]);
 
         assert_eq!(expected_bounds, res.bounds());
@@ -385,8 +381,7 @@ pub mod tests {
         let expected = SplitRect(vec![
             Rect::new(100, 100, 200, 110),
             Rect::new(130, 110, 200, 200),
-            Rect::new(100, 150, 130, 200)
-
+            Rect::new(100, 150, 130, 200),
         ]);
 
         assert_eq!(expected_bounds, res.bounds());
@@ -404,8 +399,7 @@ pub mod tests {
         let expected = SplitRect(vec![
             Rect::new(100, 100, 130, 150),
             Rect::new(130, 100, 200, 110),
-            Rect::new(100, 150, 200, 200)
-
+            Rect::new(100, 150, 200, 200),
         ]);
 
         assert_eq!(expected_bounds, res.bounds());
@@ -423,11 +417,10 @@ pub mod tests {
         let expected = SplitRect(vec![
             Rect::new(100, 100, 110, 200),
             Rect::new(110, 100, 200, 130),
-            Rect::new(150, 130, 200, 200)
+            Rect::new(150, 130, 200, 200),
         ]);
 
         assert_eq!(expected_bounds, res.bounds());
         assert_eq!(expected, res);
     }
 }
-

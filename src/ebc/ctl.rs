@@ -1,10 +1,8 @@
 use std::{io::Write, path::PathBuf, time::SystemTime};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use pinenote_service::{
-    drivers::rockchip_ebc::RockchipEbc,
-    pixel_manager as pm,
-    types::rockchip_ebc::FrameBuffers
+    drivers::rockchip_ebc::RockchipEbc, pixel_manager as pm, types::rockchip_ebc::FrameBuffers,
 };
 use tokio::{io::AsyncWriteExt, sync::mpsc};
 
@@ -24,14 +22,19 @@ impl Ctl {
 
         Ok(Ctl {
             driver: RockchipEbc::new(),
-            pixel_manager: pm::PixelManager::new(default_hint, screen_area)
+            pixel_manager: pm::PixelManager::new(default_hint, screen_area),
         })
     }
 
     fn recompute_hints(&self) -> Result<()> {
-        let hints = self.pixel_manager.compute_hints().context("Failed to compute new hints")?;
+        let hints = self
+            .pixel_manager
+            .compute_hints()
+            .context("Failed to compute new hints")?;
 
-        self.driver.upload_rect_hints(hints).context("Failed to upload hints")
+        self.driver
+            .upload_rect_hints(hints)
+            .context("Failed to upload hints")
     }
 
     fn dump(&self, mut output: impl Write) {
@@ -41,27 +44,25 @@ impl Ctl {
         let _ = writeln!(output, "=========== ! EBC_CTL DUMP ===========");
     }
 
-
     /// Dump Framebuffer data to a specific directory
     async fn fb_dump_dir(fbs: FrameBuffers, path: String, stamp: u64) -> Result<()> {
         let mut path = PathBuf::from(&path);
         path.push(format!("dump_{}", stamp));
 
-        tokio::fs::create_dir_all(&path).await
+        tokio::fs::create_dir_all(&path)
+            .await
             .with_context(|| format!("Failed to create '{:?}'", path))?;
 
         let mut fopt = tokio::fs::OpenOptions::new();
-        fopt
-            .create(true)
-            .mode(0o644)
-            .write(true)
-            .truncate(true);
+        fopt.create(true).mode(0o644).write(true).truncate(true);
 
         let dump = async |filename: &str, vec: &Vec<u8>| -> Result<()> {
             let path = path.join(filename);
-            fopt.open(&path).await
+            fopt.open(&path)
+                .await
                 .with_context(|| format!("Failed to open '{:?}'", path))?
-                .write_all(vec).await
+                .write_all(vec)
+                .await
                 .with_context(|| format!("Failed to write '{:?}'", path))?;
             Ok(())
         };
@@ -81,7 +82,9 @@ impl Ctl {
         match app_cmd {
             Add(pid, reply) => {
                 let app_key = self.pixel_manager.app_add(pm::Application::new("", pid));
-                reply.send(app_key).map_err(|e| anyhow!("Failed to send response: {e}"))?;
+                reply
+                    .send(app_key)
+                    .map_err(|e| anyhow!("Failed to send response: {e}"))?;
             }
             Remove(app_id) => {
                 self.pixel_manager.app_remove(&app_id);
@@ -98,8 +101,9 @@ impl Ctl {
         match prop_cmd {
             DefaultHint(tx) => {
                 let h = self.pixel_manager.default_hint;
-                tx.send(h).map_err(|_| anyhow!("Failed to send back default hint"))?;
-            },
+                tx.send(h)
+                    .map_err(|_| anyhow!("Failed to send back default hint"))?;
+            }
             SetDefaultHint(h) => {
                 self.pixel_manager.default_hint = h;
 
@@ -114,16 +118,39 @@ impl Ctl {
         use cmd::Window::*;
 
         match win_cmd {
-            Add { app_key, title, area, hint, visible, z_index, reply } => {
-                let win_key = self.pixel_manager.window_add(pm::Window::new(app_key, title, area, hint, visible, z_index))
+            Add {
+                app_key,
+                title,
+                area,
+                hint,
+                visible,
+                z_index,
+                reply,
+            } => {
+                let win_key = self
+                    .pixel_manager
+                    .window_add(pm::Window::new(
+                        app_key, title, area, hint, visible, z_index,
+                    ))
                     .context("PixelManager::window_add failed")?;
 
-                reply.send(win_key).map_err(|e| anyhow!("Failed to send response: {e:?}"))?;
+                reply
+                    .send(win_key)
+                    .map_err(|e| anyhow!("Failed to send response: {e:?}"))?;
 
                 self.recompute_hints()?;
-            },
-            Update { win_key, title, area, hint, visible, z_index } => {
-                let win = self.pixel_manager.window(&win_key)
+            }
+            Update {
+                win_key,
+                title,
+                area,
+                hint,
+                visible,
+                z_index,
+            } => {
+                let win = self
+                    .pixel_manager
+                    .window(&win_key)
                     .context("Failed to get window {win_key}")?;
 
                 let update = pm::WindowData {
@@ -134,7 +161,8 @@ impl Ctl {
                     z_index: z_index.unwrap_or(win.data.z_index),
                 };
 
-                self.pixel_manager.window_update(&win_key, update)
+                self.pixel_manager
+                    .window_update(&win_key, update)
                     .context("Failed to update window {win_key}")?;
 
                 self.recompute_hints()?;
@@ -156,9 +184,9 @@ impl Ctl {
                 if path == "-" {
                     self.dump(std::io::stderr())
                 } else if let Ok(f) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(path)
+                    .create(true)
+                    .append(true)
+                    .open(path)
                 {
                     self.dump(f);
                 } else {
@@ -166,7 +194,9 @@ impl Ctl {
                 }
             }
             FbDumpToDir(path) => {
-                let fbs = self.driver.extract_framebuffers()
+                let fbs = self
+                    .driver
+                    .extract_framebuffers()
                     .context("Could not retrieve framebuffers")?;
 
                 let now = SystemTime::now()
@@ -175,14 +205,17 @@ impl Ctl {
                     .as_secs();
 
                 tokio::spawn(async move {
-                    if let Err(e) = Self::fb_dump_dir(fbs, path, now).await
-                        .context("Failed to dump framebuffers") {
+                    if let Err(e) = Self::fb_dump_dir(fbs, path, now)
+                        .await
+                        .context("Failed to dump framebuffers")
+                    {
                         eprintln!("{:#?}", e);
                     }
                 });
             }
             GlobalRefresh => {
-                self.driver.global_refresh()
+                self.driver
+                    .global_refresh()
                     .context("RockchipEbc::global_refresh failed")?;
             }
             Property(p) => {
@@ -198,7 +231,9 @@ impl Ctl {
         while let Some(cmd) = rx.recv().await {
             let ctx = cmd.get_command_str();
 
-            if let Err(e) = self.dispatch(cmd).await
+            if let Err(e) = self
+                .dispatch(cmd)
+                .await
                 .with_context(|| format!("While handling {ctx}"))
             {
                 eprintln!("{e:?}")

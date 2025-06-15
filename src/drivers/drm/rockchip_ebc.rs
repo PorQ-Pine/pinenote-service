@@ -7,8 +7,14 @@ use thiserror::Error;
 use crate::{
     ioctls::{self, OpenError},
     pixel_manager::ComputedHints,
-    sysfs::{self, attribute::{AttributeBase, Boolean, Int32, RGeneric, RInt32, TypedRead}},
-    types::{rockchip_ebc::{DitheringMethod, FrameBuffers, Hint, Mode}, Rect }
+    sysfs::{
+        self,
+        attribute::{AttributeBase, Boolean, Int32, RGeneric, RInt32, TypedRead},
+    },
+    types::{
+        Rect,
+        rockchip_ebc::{DitheringMethod, FrameBuffers, Hint, Mode},
+    },
 };
 
 #[derive(Error, Debug)]
@@ -18,7 +24,7 @@ pub enum DriverError {
     #[error(transparent)]
     IotclError(#[from] nix::Error),
     #[error(transparent)]
-    SysFs(#[from] sysfs::attribute::Error)
+    SysFs(#[from] sysfs::attribute::Error),
 }
 
 /// Control structure for the RockchipEbc driver
@@ -62,7 +68,7 @@ impl RockchipEbc {
             y2_th_threshold: Self::make_param("y2_th_threshold"),
             temp_override: Self::make_param("temp_override"),
             hskew_override: Self::make_param("hskew_override"),
-            rect_hint_batch: Self::make_param("rect_hint_batch")
+            rect_hint_batch: Self::make_param("rect_hint_batch"),
         }
     }
 
@@ -80,7 +86,7 @@ impl RockchipEbc {
     pub fn global_refresh(&self) -> Result<(), DriverError> {
         let file = ioctls::open_device(Self::DEV_PATH)?;
         let mut data = ioctls::rockchip_ebc::GlobalRefresh {
-            trigger_global_refresh: 1
+            trigger_global_refresh: 1,
         };
 
         unsafe {
@@ -92,18 +98,20 @@ impl RockchipEbc {
 
     pub fn upload_rect_hints(&self, rect_hints: ComputedHints) -> Result<(), DriverError> {
         let file = ioctls::open_device(Self::DEV_PATH)?;
-        let ComputedHints { default_hint, rect_hints } = rect_hints;
+        let ComputedHints {
+            default_hint,
+            rect_hints,
+        } = rect_hints;
 
-        let rect_hints: Vec<ioctls::rockchip_ebc::RectHint> = rect_hints.into_iter()
-            .map(Into::into)
-            .collect();
+        let rect_hints: Vec<ioctls::rockchip_ebc::RectHint> =
+            rect_hints.into_iter().map(Into::into).collect();
 
         let data = ioctls::rockchip_ebc::RectHints {
             set_default_hints: default_hint.is_some() as u8,
             default_hints: default_hint.map(|h| h.into()).unwrap_or_default(),
             _padding: Default::default(),
             num_rects: rect_hints.len() as u32,
-            ptr_rect_hints: rect_hints.as_ptr() as u64
+            ptr_rect_hints: rect_hints.as_ptr() as u64,
         };
 
         unsafe {
@@ -119,7 +127,11 @@ impl RockchipEbc {
 
     pub fn extract_framebuffers(&self) -> Result<FrameBuffers, DriverError> {
         let file = ioctls::open_device(Self::DEV_PATH)?;
-        let Rect { x2: width, y2: height, .. } = Self::SCREEN_RECT.clone();
+        let Rect {
+            x2: width,
+            y2: height,
+            ..
+        } = Self::SCREEN_RECT.clone();
         let mut fbs = FrameBuffers::new(width, height);
 
         let mut data = ioctls::rockchip_ebc::ExtractFBs::from(&mut fbs);
