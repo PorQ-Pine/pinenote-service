@@ -6,6 +6,8 @@ use pinenote_service::types::{
 };
 use tokio::sync::{mpsc, oneshot};
 
+use super::OffScreenError;
+
 pub enum Command {
     Application(Application),
     Dump(String),
@@ -14,6 +16,7 @@ pub enum Command {
     Property(Property),
     SetMode(DriverMode, DitherMode, u16),
     Window(Window),
+    OffScreen(String, oneshot::Sender<Result<(), OffScreenError>>),
 }
 
 pub enum Application {
@@ -30,6 +33,9 @@ pub enum Property {
     SetDitherMode(DitherMode),
     RedrawDelay(oneshot::Sender<u16>),
     SetRedrawDelay(u16),
+    OffScreenDisable(oneshot::Sender<bool>),
+    SetOffScreenDisable(bool),
+    OffScreenOverride(oneshot::Sender<String>),
 }
 
 pub enum Window {
@@ -69,6 +75,7 @@ impl CommandStr for Command {
             Property(p) => format!("Property::{}", p.get_command_str()),
             SetMode(_, _, _) => "SetMode".into(),
             Window(w) => format!("Window::{}", w.get_command_str()),
+            OffScreen(_, _) => "OffScreen".into(),
         }
     }
 }
@@ -94,6 +101,9 @@ impl CommandStr for Property {
             SetDitherMode(_) => "DitherMode::Set".into(),
             RedrawDelay(_) => "RedrawDelay::Get".into(),
             SetRedrawDelay(_) => "RedrawDelay::Set".into(),
+            OffScreenDisable(_) => "OffScreenDisable::Get".into(),
+            SetOffScreenDisable(_) => "OffScreenDisable::Set".into(),
+            OffScreenOverride(_) => "OffScreenOverride".into(),
         }
     }
 }

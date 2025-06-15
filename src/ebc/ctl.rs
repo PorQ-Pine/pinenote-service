@@ -6,13 +6,55 @@ use pinenote_service::{
     pixel_manager as pm,
     types::rockchip_ebc::{FrameBuffers, Mode},
 };
-use tokio::{io::AsyncWriteExt, sync::mpsc};
+use tokio::{
+    io::AsyncWriteExt,
+    sync::{mpsc, oneshot},
+};
 
 use super::command::{self as cmd, CommandStr};
 
 pub struct Ctl {
     driver: RockchipEbc,
     pixel_manager: pm::PixelManager,
+    display_width: u32,
+    display_height: u32,
+    offscreen_override: String,
+}
+
+pub enum OffScreenError {
+    LoadFailed,
+    DecodeFailed,
+    UploadFailed,
+}
+
+mod utils {
+    use anyhow::Result;
+    use image::{DynamicImage, ImageReader, imageops::FilterType, metadata::Orientation};
+
+    use super::OffScreenError;
+
+    pub fn load_image(path: &String) -> Result<DynamicImage, OffScreenError> {
+        Ok(ImageReader::open(path)
+            .map_err(|_| OffScreenError::LoadFailed)?
+            .decode()
+            .map_err(|_| OffScreenError::DecodeFailed)?
+            .to_luma8()
+            .into())
+    }
+
+    pub fn transform_off_screen(mut img: DynamicImage, width: u32, height: u32) -> DynamicImage {
+        if img.height() > img.width() {
+            img.apply_orientation(Orientation::Rotate90FlipH);
+        } else {
+            img.apply_orientation(Orientation::FlipHorizontal);
+        }
+
+        if (img.width(), img.height()) != (width, height) {
+            img = img.resize_to_fill(width, height, FilterType::Nearest);
+        }
+
+        img
+    }
 }
 
 impl Ctl {
@@ -21,11 +63,55 @@ impl Ctl {
 
         let default_hint = driver.default_hint()?;
         let screen_area = driver.screen_area()?;
+        let display_width = screen_area.x2 as u32;
+        let display_height = screen_area.y2 as u32;
 
         Ok(Ctl {
             driver: RockchipEbc::new(),
             pixel_manager: pm::PixelManager::new(default_hint, screen_area),
+            display_width,
+            display_height,
+            offscreen_override: "unknown".into(),
         })
+    }
+
+    fn load_offscreen(
+        &mut self,
+        path: String,
+        reply: oneshot::Sender<Result<(), OffScreenError>>,
+    ) -> Result<()> {
+        let img = match utils::load_image(&path) {
+            Ok(img) => img,
+            Err(e) => {
+                reply
+                    .send(Err(e))
+                    .map_err(|_| anyhow!("Failed to send error"))?;
+                return Ok(());
+            }
+        };
+
+        let img = utils::transform_off_screen(img, self.display_width, self.display_height);
+
+        let bytes: Vec<u8> = img.into_bytes().iter().map(|p| p >> 4).collect();
+
+        match self.driver.upload_off_screen(bytes) {
+            Ok(_) => {
+                self.offscreen_override = path;
+                reply
+                    .send(Ok(()))
+                    .map_err(|_| anyhow!("Failed to send Ok reply to SetOffScreen"))?;
+            }
+            Err(e) => {
+                self.offscreen_override = "error".into();
+
+                reply
+                    .send(Err(OffScreenError::UploadFailed))
+                    .map_err(|_| anyhow!("Failed to send error"))?;
+                Err(e)?;
+            }
+        }
+
+        Ok(())
     }
 
     fn recompute_hints(&self) -> Result<()> {
@@ -152,6 +238,19 @@ impl Ctl {
                     ..Default::default()
                 })?;
             }
+            OffScreenDisable(tx) => {
+                let v = self.driver.no_off_screen()?;
+
+                tx.send(v)
+                    .map_err(|_| anyhow!("Failed to send OffScreenDisable value"))?;
+            }
+            SetOffScreenDisable(val) => {
+                self.driver.set_no_off_screen(val)?;
+            }
+            OffScreenOverride(tx) => {
+                tx.send(self.offscreen_override.clone())
+                    .map_err(|_| anyhow!("Failed to send OffScreen override path"))?;
+            }
         }
 
         Ok(())
@@ -272,6 +371,7 @@ impl Ctl {
                 })?;
             }
             Window(w) => self.dispatch_window(w).await?,
+            OffScreen(p, reply) => self.load_offscreen(p, reply)?,
         };
 
         Ok(())
