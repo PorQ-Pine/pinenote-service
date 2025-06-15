@@ -1,6 +1,10 @@
 //! Type safe representation of rockchip_ebc parameters
 
-use std::{fmt::Display, num::ParseIntError, str::FromStr};
+use std::{
+    fmt::{Debug, Display},
+    num::ParseIntError,
+    str::FromStr,
+};
 
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
@@ -41,7 +45,7 @@ pub enum Error {
     Invalid,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Hint {
     repr: u8,
 }
@@ -139,6 +143,15 @@ impl Display for Hint {
 
         let redraw = if self.redraw() { "R" } else { "r" };
         write!(f, "{depth}|{convert}|{redraw}")
+    }
+}
+
+impl Debug for Hint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Hint")
+            .field("repr", &format_args!("{:X}", self.repr))
+            .field("str", &format_args!("{}", self))
+            .finish()
     }
 }
 
