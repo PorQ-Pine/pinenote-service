@@ -8,7 +8,7 @@ use zbus::{
     zvariant::{Type, Value},
 };
 
-use crate::ebc;
+use crate::ebc::{self, OffScreenError};
 
 #[derive(Type, Value)]
 struct Hint {
@@ -112,6 +112,68 @@ impl PineNoteCtl {
         }
 
         Ok(())
+    }
+
+    async fn set_off_screen(
+        &self,
+        path: String,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
+        let (tx, rx) = oneshot::channel::<Result<(), OffScreenError>>();
+
+        let res = self
+            .ebc_tx
+            .with_reply(ebc::Command::OffScreen(path.clone(), tx), rx)
+            .await
+            .map_err(internal_error)?;
+
+        if let Err(e) = res {
+            match e {
+                OffScreenError::LoadFailed => Err(fdo::Error::FileNotFound(path))?,
+                OffScreenError::DecodeFailed => Err(fdo::Error::Failed(format!(
+                    "Failed to load '{path}': Bad format"
+                )))?,
+                OffScreenError::UploadFailed => {
+                    self.off_screen_override_changed(&emitter).await?;
+                    Err(fdo::Error::Failed(
+                        "Could not upload image to driver".into(),
+                    ))?;
+                }
+            }
+        } else {
+            self.off_screen_override_changed(&emitter).await?
+        }
+
+        Ok(())
+    }
+
+    #[zbus(property)]
+    async fn off_screen_override(&self) -> fdo::Result<String> {
+        let (tx, rx) = oneshot::channel::<String>();
+
+        self.ebc_tx
+            .with_reply(ebc::Property::OffScreenOverride(tx), rx)
+            .await
+            .map_err(internal_error)
+    }
+
+    #[zbus(property)]
+    async fn off_screen_disable(&self) -> fdo::Result<bool> {
+        let (tx, rx) = oneshot::channel::<bool>();
+
+        self.ebc_tx
+            .with_reply(ebc::Property::OffScreenDisable(tx), rx)
+            .await
+            .map_err(internal_error)
+    }
+
+    #[zbus(property)]
+    async fn set_off_screen_disable(&self, disable: bool) -> Result<(), zbus::Error> {
+        self.ebc_tx
+            .send(ebc::Property::SetOffScreenDisable(disable))
+            .await
+            .map_err(internal_error)
+            .map_err(zbus::Error::from)
     }
 
     #[zbus(property)]
