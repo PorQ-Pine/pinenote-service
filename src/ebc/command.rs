@@ -164,7 +164,7 @@ impl CommandSender {
         self.do_send(cmd, &ctx_str).await?;
         reply
             .await
-            .with_context(|| "Failed to get reply from {ctx_str}")
+            .with_context(|| format!("Failed to get reply from {ctx_str}"))
     }
 }
 
