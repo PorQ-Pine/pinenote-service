@@ -129,6 +129,7 @@ pub struct WindowData {
     pub area: Rect,
     pub hint: Option<Hint>,
     pub visible: bool,
+    pub fullscreen: bool,
     pub z_index: i32,
 }
 
@@ -150,6 +151,7 @@ impl Window {
         area: Rect,
         hint: Option<Hint>,
         visible: bool,
+        fullscreen: bool,
         z_index: i32,
     ) -> Self {
         let uid = uuid::Uuid::new_v4().to_string();
@@ -164,9 +166,14 @@ impl Window {
                 area,
                 hint,
                 visible,
+                fullscreen,
                 z_index,
             },
         }
+    }
+
+    pub fn is_fullscreen(&self) -> bool {
+        self.data.fullscreen
     }
 
     pub fn zsurface(&self, screen_area: &Rect) -> Option<ZSurface> {
@@ -390,6 +397,22 @@ impl PixelManager {
     /// Compute visible RectHint.
     pub fn compute_hints(&self) -> Result<ComputedHints, PixelManagerError> {
         let mut ret = ComputedHints::with_hint(self.default_hint);
+        let mut ztree = ZTree::new();
+
+        for win in self.windows.values() {
+            if win.is_fullscreen() {
+                let mut hint = ComputedHints::new();
+                hint.rect_hints = vec![RectHint {
+                    rect: self.screen_area.clone(),
+                    hint: self.window_hint_fallback(&win.uid)?,
+                }];
+                return Ok(hint);
+            }
+
+            if let Some(s) = win.zsurface(&self.screen_area) {
+                ztree.insert(s);
+            }
+        }
 
         let ztree = self
             .windows
@@ -470,6 +493,7 @@ mod tests {
             win_rect.clone(),
             Some(win_hint),
             true,
+            false,
             0,
         );
 
@@ -498,6 +522,7 @@ mod tests {
             Rect::new(100, 100, 200, 200),
             Some(Y2DITHER),
             true,
+            false,
             0,
         );
 
@@ -533,6 +558,7 @@ mod tests {
             win_rect.clone(),
             Some(win_hint),
             true,
+            false,
             0,
         );
 
@@ -563,6 +589,7 @@ mod tests {
             "TestWindow",
             win_rect.clone(),
             Some(win_hint),
+            false,
             false,
             0,
         );
@@ -598,6 +625,7 @@ mod tests {
             win_rect.clone(),
             None,
             true,
+            false,
             0,
         ))?;
 
@@ -628,6 +656,7 @@ mod tests {
             win_rect.clone(),
             None,
             true,
+            false,
             0,
         ))?;
 
@@ -651,6 +680,7 @@ mod tests {
             rect_hint1.rect.clone(),
             Some(rect_hint1.hint),
             true,
+            false,
             5,
         );
         mgr.window_add(window1)?;
@@ -665,6 +695,69 @@ mod tests {
             "TestWindow2",
             rect_hint2.rect.clone(),
             Some(rect_hint2.hint),
+            true,
+            false,
+            3,
+        );
+        mgr.window_add(window2)?;
+
+        let rect_hint3 = RectHint {
+            rect: Rect::new(0, 0, 400, 400),
+            hint: Y4DITHER,
+        };
+        let app_key = mgr.app_add(Application::new("testapp", 1236));
+        let window3 = Window::new(
+            app_key,
+            "TestWindow3",
+            rect_hint3.rect.clone(),
+            Some(rect_hint3.hint),
+            true,
+            false,
+            4,
+        );
+        mgr.window_add(window3)?;
+
+        let expected = ComputedHints {
+            default_hint: Some(mgr.default_hint),
+            rect_hints: vec![rect_hint2, rect_hint3, rect_hint1],
+        };
+
+        assert_eq!(expected, mgr.compute_hints()?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn fullscreen_window_support() -> Result<(), PixelManagerError> {
+        let mut mgr = setup_manager();
+
+        let app_key = mgr.app_add(Application::new("testapp", 1234));
+        let rect_hint1 = RectHint {
+            rect: Rect::new(100, 100, 500, 500),
+            hint: Y2DITHER,
+        };
+        let window1 = Window::new(
+            app_key,
+            "TestWindow1",
+            rect_hint1.rect.clone(),
+            Some(rect_hint1.hint),
+            true,
+            false,
+            5,
+        );
+        mgr.window_add(window1)?;
+
+        let rect_hint2 = RectHint {
+            rect: Rect::new(100, 100, 600, 600),
+            hint: Y2DITHER_REDRAW,
+        };
+        let app_key = mgr.app_add(Application::new("testapp", 1235));
+        let window2 = Window::new(
+            app_key,
+            "TestWindow2",
+            rect_hint2.rect.clone(),
+            Some(rect_hint2.hint),
+            true,
             true,
             3,
         );
@@ -681,13 +774,18 @@ mod tests {
             rect_hint3.rect.clone(),
             Some(rect_hint3.hint),
             true,
+            false,
             4,
         );
         mgr.window_add(window3)?;
 
+        let full_screen_rect = RectHint {
+            rect: SCREEN_RECT.clone(),
+            hint: Y2DITHER_REDRAW,
+        };
         let expected = ComputedHints {
-            default_hint: Some(mgr.default_hint),
-            rect_hints: vec![rect_hint2, rect_hint3, rect_hint1],
+            default_hint: None,
+            rect_hints: vec![full_screen_rect],
         };
 
         assert_eq!(expected, mgr.compute_hints()?);
@@ -710,6 +808,7 @@ mod tests {
             rect_hint1.rect.clone(),
             Some(rect_hint1.hint),
             true,
+            false,
             0,
         );
         mgr.window_add(window1)?;
@@ -725,6 +824,7 @@ mod tests {
             rect_hint2.rect.clone(),
             Some(rect_hint2.hint),
             true,
+            false,
             1,
         );
         mgr.window_add(window2)?;

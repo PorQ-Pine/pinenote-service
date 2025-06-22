@@ -123,7 +123,7 @@ window didn't have a defined hint.
 
 Method using window expect the following signature for the 'window' parameter:
 ```
-window -> (s(iiii)sbi)
+window -> (s(iiii)sbbi)
   title -> s
   area -> (iiii)
     x1 -> i
@@ -132,6 +132,7 @@ window -> (s(iiii)sbi)
     y2 -> i
   hint -> s
   visible -> b
+  fullscreen -> b
   z-index -> i
 ```
 
@@ -143,15 +144,16 @@ the [human readable](#human-readable) format
 
 ##### Window Management Method
 HintMgr1 interface has the following methods to manage Window:
-- WindowAdd - `s(s(iiii)sbi) -> s` - Take an application key and a `window`.
+- WindowAdd - `s(s(iiii)sbbi) -> s` - Take an application key and a `window`.
   Returns an arbitrary key to refer back to this window.
 - WindowRemove - `s -> ()` - Take a window key, and remove the window.
-- WindowUpdate - `s(s(iiii)sbi) -> ()` - Take a window key and perform an update
+- WindowUpdate - `s(s(iiii)sbbi) -> ()` - Take a window key and perform an update
   of all the window field. This method should be used when several fields need
   to be updated, since every fields could trigger an update.
 - WindowUpdateArea - `s(iiii) -> ()` - Set the new window area.
 - WindowUpdateHint - `ss -> ()` - Set or unset the window rendering hint
 - WindowUpdateTitle - `ss -> ()` - Update the window title
-- WindowUpdateVisible - `sb -> ()` - Set or Unset the 'visible' flag for the
-  window.
+- WindowUpdateVisible - `sb -> ()` - Set or unset the window 'visible' flag.
+- WindowUpdateFullscreen - `sb -> ()` - Set or unset the window 'fullscreen'
+  flag
 - WindowUpdateZindex - `si -> ()` - Set the window z-index.

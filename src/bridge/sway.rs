@@ -25,7 +25,7 @@ struct SwayWindow {
     area: Rect,
     visible: bool,
     floating: bool,
-    _fullscreen: bool,
+    fullscreen: bool,
     hint: Option<Hint>,
     z_index: i32,
 }
@@ -37,6 +37,7 @@ impl SwayWindow {
                 ref title,
                 ref area,
                 visible,
+                fullscreen,
                 hint,
                 z_index,
                 ..
@@ -55,6 +56,11 @@ impl SwayWindow {
                 },
                 visible: if self.visible != visible {
                     Some(visible)
+                } else {
+                    None
+                },
+                fullscreen: if self.fullscreen != fullscreen {
+                    Some(fullscreen)
                 } else {
                     None
                 },
@@ -121,7 +127,7 @@ impl TryFrom<&Node> for SwayWindow {
             area,
             visible,
             floating: node.node_type == NodeType::FloatingCon,
-            _fullscreen: node.fullscreen_mode.unwrap_or_default() != 0,
+            fullscreen: node.fullscreen_mode.unwrap_or_default() != 0,
             hint,
             z_index: 0,
             //_data
@@ -225,6 +231,7 @@ impl SwayBridge {
             area: win.area.clone(),
             hint: win.hint,
             visible: win.visible,
+            fullscreen: win.fullscreen,
             z_index: win.z_index,
             reply: rtx,
         };

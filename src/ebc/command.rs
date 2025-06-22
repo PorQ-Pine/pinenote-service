@@ -44,6 +44,7 @@ pub struct WindowUpdate {
     pub area: Option<Rect>,
     pub hint: Option<Option<Hint>>,
     pub visible: Option<bool>,
+    pub fullscreen: Option<bool>,
     pub z_index: Option<i32>,
 }
 
@@ -54,6 +55,7 @@ pub enum Window {
         area: Rect,
         hint: Option<Hint>,
         visible: bool,
+        fullscreen: bool,
         z_index: i32,
         reply: oneshot::Sender<String>,
     },

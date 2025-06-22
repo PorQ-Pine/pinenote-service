@@ -15,6 +15,7 @@ struct Window {
     area: Rect,
     hint: String,
     visible: bool,
+    fullscreen: bool,
     z_index: i32,
 }
 
@@ -146,6 +147,7 @@ impl HintMgr1 {
             area,
             hint,
             visible,
+            fullscreen,
             z_index,
         } = win;
 
@@ -158,6 +160,7 @@ impl HintMgr1 {
             area,
             hint,
             visible,
+            fullscreen,
             z_index,
             reply,
         };
@@ -178,6 +181,7 @@ impl HintMgr1 {
             area,
             hint,
             visible,
+            fullscreen,
             z_index,
         } = win;
 
@@ -189,6 +193,7 @@ impl HintMgr1 {
             area: Some(area),
             hint: Some(hint),
             visible: Some(visible),
+            fullscreen: Some(fullscreen),
             z_index: Some(z_index),
         };
 
@@ -233,6 +238,15 @@ impl HintMgr1 {
     async fn window_update_visible(&self, win_key: String, visible: bool) -> fdo::Result<()> {
         let update = ebc::WindowUpdate {
             visible: Some(visible),
+            ..Default::default()
+        };
+
+        self.send_win(ebc::Window::Update { win_key, update }).await
+    }
+
+    async fn window_update_fullscreen(&self, win_key: String, fullscreen: bool) -> fdo::Result<()> {
+        let update = ebc::WindowUpdate {
+            fullscreen: Some(fullscreen),
             ..Default::default()
         };
 

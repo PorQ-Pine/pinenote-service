@@ -266,13 +266,14 @@ impl Ctl {
                 area,
                 hint,
                 visible,
+                fullscreen,
                 z_index,
                 reply,
             } => {
                 let win_key = self
                     .pixel_manager
                     .window_add(pm::Window::new(
-                        app_key, title, area, hint, visible, z_index,
+                        app_key, title, area, hint, visible, fullscreen, z_index,
                     ))
                     .context("PixelManager::window_add failed")?;
 
@@ -290,6 +291,7 @@ impl Ctl {
                         area,
                         hint,
                         visible,
+                        fullscreen,
                         z_index,
                     },
             } => {
@@ -303,6 +305,7 @@ impl Ctl {
                     area: area.unwrap_or(win.data.area.clone()),
                     hint: hint.unwrap_or(win.data.hint),
                     visible: visible.unwrap_or(win.data.visible),
+                    fullscreen: fullscreen.unwrap_or(win.data.fullscreen),
                     z_index: z_index.unwrap_or(win.data.z_index),
                 };
 
