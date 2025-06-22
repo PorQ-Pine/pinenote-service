@@ -49,9 +49,11 @@ fn parse_hint(hint: String) -> fdo::Result<Option<Hint>> {
 fn validate_rect(rect: Rect) -> fdo::Result<Rect> {
     let Rect { x1, y1, x2, y2 } = rect;
 
-    if  x1 < 0 || y1 < 0 || x1 > x2 || y1 > y2 {
+    if x1 < 0 || y1 < 0 || x1 > x2 || y1 > y2 {
         Err(fdo::Error::InvalidArgs("Bad Rectangle".into()))
-    } else { Ok(Rect { x1, y1, x2, y2 })}
+    } else {
+        Ok(Rect { x1, y1, x2, y2 })
+    }
 }
 
 /// DBus interface to manage per Window Hints.
