@@ -38,6 +38,15 @@ pub enum Property {
     OffScreenOverride(oneshot::Sender<String>),
 }
 
+#[derive(Default)]
+pub struct WindowUpdate {
+    pub title: Option<String>,
+    pub area: Option<Rect>,
+    pub hint: Option<Option<Hint>>,
+    pub visible: Option<bool>,
+    pub z_index: Option<i32>,
+}
+
 pub enum Window {
     Add {
         app_key: String,
@@ -50,11 +59,7 @@ pub enum Window {
     },
     Update {
         win_key: String,
-        title: Option<String>,
-        area: Option<Rect>,
-        hint: Option<Option<Hint>>,
-        visible: Option<bool>,
-        z_index: Option<i32>,
+        update: WindowUpdate,
     },
     Remove(String),
 }

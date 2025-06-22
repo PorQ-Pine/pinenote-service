@@ -30,16 +30,8 @@ struct SwayWindow {
     z_index: i32,
 }
 
-struct SwayWindowDiff {
-    title: Option<String>,
-    area: Option<Rect>,
-    visible: Option<bool>,
-    hint: Option<Option<Hint>>,
-    z_index: Option<i32>,
-}
-
 impl SwayWindow {
-    fn diff(&self, other: &Self) -> Option<SwayWindowDiff> {
+    fn diff(&self, other: &Self) -> Option<ebc::WindowUpdate> {
         if self != other {
             let &Self {
                 ref title,
@@ -50,7 +42,7 @@ impl SwayWindow {
                 ..
             } = other;
 
-            Some(SwayWindowDiff {
+            Some(ebc::WindowUpdate {
                 title: if &self.title != title {
                     Some(title.clone())
                 } else {
@@ -257,22 +249,10 @@ impl SwayBridge {
     ) -> Result<()> {
         let &mut (ref win_key, ref mut win) = self.window_meta.get_mut(&up_win.id).unwrap();
 
-        if let Some(SwayWindowDiff {
-            title,
-            area,
-            visible,
-            hint,
-            z_index,
-            ..
-        }) = win.diff(&up_win)
-        {
+        if let Some(update) = win.diff(&up_win) {
             tx.send(ebc::command::Window::Update {
                 win_key: win_key.clone(),
-                title,
-                area,
-                hint,
-                visible,
-                z_index,
+                update,
             })
             .await
             .context("Failed to update window '{win_key}'")?;

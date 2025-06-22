@@ -284,11 +284,14 @@ impl Ctl {
             }
             Update {
                 win_key,
-                title,
-                area,
-                hint,
-                visible,
-                z_index,
+                update:
+                    cmd::WindowUpdate {
+                        title,
+                        area,
+                        hint,
+                        visible,
+                        z_index,
+                    },
             } => {
                 let win = self
                     .pixel_manager
