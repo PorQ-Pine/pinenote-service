@@ -1,6 +1,5 @@
 use anyhow::Result;
 use tokio::{signal, sync::mpsc};
-use zbus::connection;
 
 pub mod bridge {
     pub mod sway;
@@ -24,19 +23,14 @@ async fn main() -> Result<()> {
         ebc.serve(rx).await;
     });
 
-    let pinenote_ctl = dbus::PineNoteCtl::new(tx.clone());
-
-    let _zbus_connection = connection::Builder::session()?
-        .name("org.pinenote.PineNoteCtl")?
-        .serve_at("/org/pinenote/PineNoteCtl", pinenote_ctl)?
-        .build()
-        .await?;
-
+    let sway_tx = tx.clone();
     let mut sway_bridge = bridge::sway::SwayBridge::new().await?;
 
     tokio::spawn(async move {
-        let _ = sway_bridge.run(tx.clone()).await;
+        let _ = sway_bridge.run(sway_tx).await;
     });
+
+    let _dbus_ctx = dbus::Context::initialize(tx.clone()).await?;
 
     match signal::ctrl_c().await {
         Ok(()) => {}
