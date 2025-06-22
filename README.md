@@ -135,12 +135,13 @@ window -> (s(iiii)sbi)
   z-index -> i
 ```
 
-##### Window Management Method
 `area` is a rectangle defined by its top-left and bottom-right coordinate.
 
 `hint` is a string, which can either be empty to use default hints, or respect
 the [human readable](#human-readable) format
 
+
+##### Window Management Method
 HintMgr1 interface has the following methods to manage Window:
 - WindowAdd - `s(s(iiii)sbi) -> s` - Take an application key and a `window`.
   Returns an arbitrary key to refer back to this window.
