@@ -1,40 +1,11 @@
-use pinenote_service::types::rockchip_ebc::{
-    DitherMode, DriverMode, Hint as CoreHint, HintBitDepth, HintConvertMode,
-};
+use pinenote_service::types::rockchip_ebc::{DitherMode, DriverMode, Hint as CoreHint};
 use tokio::sync::{mpsc, oneshot};
-use zbus::{
-    fdo, interface,
-    object_server::SignalEmitter,
-    zvariant::{Type, Value},
-};
+use zbus::{fdo, interface, object_server::SignalEmitter};
 
 use crate::{
     dbus,
     ebc::{self, OffScreenError},
 };
-
-#[derive(Type, Value)]
-struct Hint {
-    bit_depth: HintBitDepth,
-    convert: HintConvertMode,
-    redraw: bool,
-}
-
-impl From<CoreHint> for Hint {
-    fn from(value: CoreHint) -> Self {
-        Self {
-            bit_depth: value.bit_depth(),
-            convert: value.convert_mode(),
-            redraw: value.redraw(),
-        }
-    }
-}
-
-impl From<Hint> for CoreHint {
-    fn from(value: Hint) -> Self {
-        Self::new(value.bit_depth, value.convert, value.redraw)
-    }
-}
 
 pub struct Ebc1 {
     ebc_tx: ebc::CommandSender,
@@ -175,7 +146,7 @@ impl Ebc1 {
     }
 
     #[zbus(property)]
-    async fn default_hint(&self) -> fdo::Result<Hint> {
+    async fn default_hint(&self) -> fdo::Result<super::Hint> {
         let (tx, rx) = oneshot::channel::<CoreHint>();
 
         self.ebc_tx
@@ -186,7 +157,7 @@ impl Ebc1 {
     }
 
     #[zbus(property)]
-    async fn set_default_hint(&self, hint: Hint) -> Result<(), zbus::Error> {
+    async fn set_default_hint(&self, hint: super::Hint) -> Result<(), zbus::Error> {
         let hint: CoreHint = hint.into();
 
         self.ebc_tx
