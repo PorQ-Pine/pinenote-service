@@ -4,39 +4,7 @@ use zbus::{connection, fdo};
 
 use crate::ebc;
 
-pub mod pinenotectl {
-    use pinenote_service::types::rockchip_ebc::{Hint as CoreHint, HintBitDepth, HintConvertMode};
-    use zbus::zvariant::{Type, Value};
-
-    pub mod ebc1;
-    pub use ebc1::Ebc1;
-
-    pub mod hintmgr1;
-    pub use hintmgr1::HintMgr1;
-
-    #[derive(Type, Value)]
-    pub struct Hint {
-        bit_depth: HintBitDepth,
-        convert: HintConvertMode,
-        redraw: bool,
-    }
-
-    impl From<CoreHint> for Hint {
-        fn from(value: CoreHint) -> Self {
-            Self {
-                bit_depth: value.bit_depth(),
-                convert: value.convert_mode(),
-                redraw: value.redraw(),
-            }
-        }
-    }
-
-    impl From<Hint> for CoreHint {
-        fn from(value: Hint) -> Self {
-            Self::new(value.bit_depth, value.convert, value.redraw)
-        }
-    }
-}
+pub mod pinenotectl;
 
 pub struct Context {
     _connection: connection::Connection,
@@ -51,12 +19,14 @@ const DBUS_NAME: &str = "org.pinenote.PineNoteCtl";
 const DBUS_PATH: &str = "/org/pinenote/PineNoteCtl";
 
 impl Context {
-    pub async fn initialize(tx: mpsc::Sender<ebc::Command>) -> Result<Self> {
+    pub async fn initialize(tx: mpsc::Sender<ebc::Command>, bridge: String) -> Result<Self> {
+        let ctl1 = pinenotectl::PineNoteCtl::new(tx.clone(), bridge);
         let ebc1 = pinenotectl::Ebc1::new(tx.clone());
         let hintmgr1 = pinenotectl::HintMgr1::new(tx.clone());
 
         let _connection = connection::Builder::session()?
             .name(DBUS_NAME)?
+            .serve_at(DBUS_PATH, ctl1)?
             .serve_at(DBUS_PATH, ebc1)?
             .serve_at(DBUS_PATH, hintmgr1)?
             .build()

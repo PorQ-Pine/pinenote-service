@@ -35,13 +35,6 @@ impl Ebc1 {
             .map_err(dbus::internal_error)
     }
 
-    async fn dump(&self, path: String) -> fdo::Result<()> {
-        self.ebc_tx
-            .send(ebc::Command::Dump(path))
-            .await
-            .map_err(dbus::internal_error)
-    }
-
     async fn cycle_driver_mode(
         &self,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,

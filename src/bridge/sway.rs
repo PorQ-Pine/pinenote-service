@@ -11,7 +11,10 @@ use pinenote_service::types::{Rect, rockchip_ebc::Hint};
 use swayipc_async::{
     Connection, Event, EventStream, EventType, Node, NodeBorder, NodeType, Rect as SwayRect,
 };
-use tokio::sync::{mpsc::Sender, oneshot};
+use tokio::sync::{
+    mpsc::{self, Sender},
+    oneshot,
+};
 
 use crate::ebc;
 
@@ -361,7 +364,7 @@ impl SwayBridge {
         Ok(())
     }
 
-    pub async fn run(&mut self, tx: Sender<ebc::Command>) -> Result<()> {
+    pub async fn run(mut self, tx: Sender<ebc::Command>) -> Result<()> {
         let mut tx: ebc::CommandSender = tx.into();
         let mut process_tree = true;
 
@@ -419,4 +422,18 @@ impl SwayBridge {
 
         Ok(())
     }
+}
+
+const SWAY_BRIDGE: &str = "Sway";
+
+pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
+    let sway_bridge = SwayBridge::new()
+        .await
+        .context("While trying to start Sway bridge")?;
+
+    tokio::spawn(async move {
+        let _ = sway_bridge.run(tx).await;
+    });
+
+    Ok(SWAY_BRIDGE.into())
 }

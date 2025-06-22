@@ -2,7 +2,23 @@ use anyhow::Result;
 use tokio::{signal, sync::mpsc};
 
 pub mod bridge {
+    use tokio::sync::mpsc;
+
+    use crate::ebc;
+
     pub mod sway;
+
+    pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Option<String> {
+        let res = sway::start(tx.clone()).await;
+
+        match res {
+            Ok(s) => Some(s),
+            Err(e) => {
+                eprintln!("{e:#?}");
+                None
+            }
+        }
+    }
 }
 
 pub mod dbus;
@@ -23,14 +39,9 @@ async fn main() -> Result<()> {
         ebc.serve(rx).await;
     });
 
-    let sway_tx = tx.clone();
-    let mut sway_bridge = bridge::sway::SwayBridge::new().await?;
+    let selected_bridge = bridge::start(tx.clone()).await.unwrap_or_default();
 
-    tokio::spawn(async move {
-        let _ = sway_bridge.run(sway_tx).await;
-    });
-
-    let _dbus_ctx = dbus::Context::initialize(tx.clone()).await?;
+    let _dbus_ctx = dbus::Context::initialize(tx.clone(), selected_bridge).await?;
 
     match signal::ctrl_c().await {
         Ok(()) => {}
