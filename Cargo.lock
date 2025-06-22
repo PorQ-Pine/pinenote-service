@@ -986,6 +986,7 @@ dependencies = [
  "nalgebra",
  "nix",
  "num_enum",
+ "serde",
  "swayipc-async",
  "thiserror 2.0.12",
  "tokio",

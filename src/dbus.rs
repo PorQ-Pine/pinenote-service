@@ -11,6 +11,9 @@ pub mod pinenotectl {
     pub mod ebc1;
     pub use ebc1::Ebc1;
 
+    pub mod hintmgr1;
+    pub use hintmgr1::HintMgr1;
+
     #[derive(Type, Value)]
     pub struct Hint {
         bit_depth: HintBitDepth,
@@ -50,10 +53,12 @@ const DBUS_PATH: &str = "/org/pinenote/PineNoteCtl";
 impl Context {
     pub async fn initialize(tx: mpsc::Sender<ebc::Command>) -> Result<Self> {
         let ebc1 = pinenotectl::Ebc1::new(tx.clone());
+        let hintmgr1 = pinenotectl::HintMgr1::new(tx.clone());
 
         let _connection = connection::Builder::session()?
             .name(DBUS_NAME)?
             .serve_at(DBUS_PATH, ebc1)?
+            .serve_at(DBUS_PATH, hintmgr1)?
             .build()
             .await?;
 

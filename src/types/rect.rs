@@ -1,6 +1,9 @@
 use std::fmt::Debug;
 
-#[derive(Debug, PartialEq, Clone)]
+use serde::Deserialize;
+use zbus::zvariant::{Type, Value};
+
+#[derive(Debug, PartialEq, Clone, Deserialize, Type, Value)]
 pub struct Rect {
     pub x1: i32,
     pub y1: i32,
