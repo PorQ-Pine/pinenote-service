@@ -50,5 +50,5 @@ async fn main() -> Result<()> {
         }
     };
 
-    unimplemented!("Termination not implemented yet")
+    Ok(())
 }
