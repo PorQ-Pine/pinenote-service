@@ -114,7 +114,9 @@ impl TryFrom<&Node> for SwayWindow {
 
         let hint = node.marks.iter().find_map(|m| {
             if m.starts_with("ebchint:") || m.starts_with("_ebchint:") {
-                m.split(':').nth(2).and_then(utils::parse_hint)
+                m.split(':')
+                    .nth(2)
+                    .and_then(|s| Hint::try_from_human_readable(s).ok())
             } else {
                 None
             }

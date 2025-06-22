@@ -3,32 +3,10 @@ use std::collections::HashSet;
 use anyhow::{Context, Result, anyhow, bail};
 use nalgebra::{Matrix3, Matrix3x2, Scale2, Translation2, Vector2};
 use nix::libc::pid_t;
-use pinenote_service::types::{
-    Rect,
-    rockchip_ebc::{Hint, HintBitDepth, HintConvertMode},
-};
+use pinenote_service::types::Rect;
 use swayipc_async::{Connection, Node, Output, Rect as SwayRect};
 
 use super::SwayWindow;
-
-pub(super) fn parse_hint(input: &str) -> Option<Hint> {
-    let mut bitdepth: Option<HintBitDepth> = None;
-    let mut dither = HintConvertMode::Threshold;
-    let mut redraw = false;
-
-    input.split("|").for_each(|h| match h {
-        "Y4" => bitdepth = Some(HintBitDepth::Y4),
-        "Y2" => bitdepth = Some(HintBitDepth::Y2),
-        "Y1" => bitdepth = Some(HintBitDepth::Y1),
-        "T" => dither = HintConvertMode::Threshold,
-        "D" => dither = HintConvertMode::Dither,
-        "R" => redraw = true,
-        "r" => redraw = false,
-        _ => {}
-    });
-
-    bitdepth.map(|bd| Hint::new(bd, dither, redraw))
-}
 
 struct StandardNodeIterator<'a> {
     queue: Vec<&'a Node>,

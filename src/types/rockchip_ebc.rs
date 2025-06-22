@@ -68,6 +68,27 @@ impl Hint {
         }
     }
 
+    pub fn try_from_human_readable(str: &str) -> Result<Self, Error> {
+        let mut bitdepth: Option<HintBitDepth> = None;
+        let mut convert = HintConvertMode::Threshold;
+        let mut redraw: bool = false;
+
+        for token in str.split("|") {
+            match token {
+                "Y4" => bitdepth = Some(HintBitDepth::Y4),
+                "Y2" => bitdepth = Some(HintBitDepth::Y2),
+                "Y1" => bitdepth = Some(HintBitDepth::Y1),
+                "T" => convert = HintConvertMode::Threshold,
+                "D" => convert = HintConvertMode::Dither,
+                "R" => redraw = true,
+                "r" => redraw = false,
+                _ => return Err(Error::Invalid),
+            }
+        }
+
+        Ok(Self::new(bitdepth.ok_or(Error::Invalid)?, convert, redraw))
+    }
+
     pub fn try_from_part(bit_depth: u8, convert_mode: u8, redraw: bool) -> Result<Self, Error> {
         let bit_depth = HintBitDepth::try_from_primitive(bit_depth)?;
         let convert_mode = HintConvertMode::try_from_primitive(convert_mode)?;
