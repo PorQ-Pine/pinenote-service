@@ -150,14 +150,56 @@ impl Ebc1 {
     }
 
     #[zbus(property)]
-    async fn set_default_hint(&self, hint: super::Hint) -> Result<(), zbus::Error> {
+    async fn set_default_hint(
+        &self,
+        hint: super::Hint,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), zbus::Error> {
         let hint: CoreHint = hint.into();
 
         self.ebc_tx
             .send(ebc::Property::SetDefaultHint(hint))
             .await
             .map_err(dbus::internal_error)
-            .map_err(zbus::Error::from)
+            .map_err(zbus::Error::from)?;
+
+        self.default_hint_hr_changed(&emitter).await?;
+
+        Ok(())
+    }
+
+    #[zbus(property)]
+    async fn default_hint_hr(&self) -> fdo::Result<String> {
+        let (tx, rx) = oneshot::channel::<CoreHint>();
+
+        let hint = self
+            .ebc_tx
+            .with_reply(ebc::Property::DefaultHint(tx), rx)
+            .await
+            .map_err(dbus::internal_error)?;
+
+        Ok(format!("{hint}"))
+    }
+
+    #[zbus(property)]
+    async fn set_default_hint_hr(
+        &self,
+        hint: String,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<(), zbus::Error> {
+        let Ok(hint) = CoreHint::try_from_human_readable(hint.as_str()) else {
+            return Err(fdo::Error::InvalidArgs("Invalid format".into()).into());
+        };
+
+        self.ebc_tx
+            .send(ebc::Property::SetDefaultHint(hint))
+            .await
+            .map_err(dbus::internal_error)
+            .map_err(zbus::Error::from)?;
+
+        self.default_hint_changed(&emitter).await?;
+
+        Ok(())
     }
 
     #[zbus(property)]
