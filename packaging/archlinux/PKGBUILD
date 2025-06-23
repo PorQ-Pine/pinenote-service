@@ -1,0 +1,56 @@
+# Maintainer: phantomas <phantomas@phantomas.xyz>
+
+buildarch=8
+
+pkgname=pinenote-service
+pkgver=v1.0.0
+pkgrel=1
+pkgdesc="Daemon managing several PineNote systems & drivers"
+arch=('aarch64')
+url="https://git.sr.ht/~phantomas/pinenote-service"
+license=(GPL-3.0-or-later)
+depends=('gcc-libs')
+makedepends=(rust)
+source=(
+    "${pkgname}-${pkgver}.tar.gz::https://git.sr.ht/~phantomas/pinenote-service/archive/${pkgver}.tar.gz"
+    https://git.sr.ht/~phantomas/pinenote-service/refs/download/v1.0.0/0001-packaging-fix-systemd-unit.patch{,.sig}
+)
+validpgpkeys=(B57BD2C369535DC9E2E6B1CE54372F8BF34BAA05)
+b2sums=(
+    '6e74485cc9d8ea6a6c6e50d018a16adbd0ee13016619fca7577734671122f8be974a2deddb8d7da89c361123f570babcc8972c433f3d018de0c736dfc0223a5d'
+    'd3b42b0d1e781d9707aafce724a0ab69994149881829243cdf21378d276f81e11cde58428e2f7730bbaecfb32869fbfeb2ef1d760feb9f5982ebce86bcbf7830'
+    'SKIP'
+)
+
+prepare() {
+    cd "${pkgname}-${pkgver}"
+
+    local src
+    for src in "${source[@]}"; do
+        src="${src%%::*}"
+        src="${src##*/}"
+
+        [[ $src = *.patch ]] || continue
+        echo "Applying patch $src"
+        patch -Np1 < "../$src"
+    done
+
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "${pkgname}-${pkgver}"
+
+    export RUSTUP_TOOLCHAIN=stable
+    cargo build --frozen --release --all-features
+}
+
+package() {
+    cd "${pkgname}-${pkgver}"
+
+    install -Dm755 target/release/pinenote-service -t "${pkgdir}/usr/bin"
+
+    install -Dm644 packaging/resources/pinenote.service -t "${pkgdir}/usr/lib/systemd/user/"
+    install -Dm644 packaging/resources/org.pinenote.PineNoteCtl.service -t "${pkgdir}/usr/share/dbus-1/services/"
+}
