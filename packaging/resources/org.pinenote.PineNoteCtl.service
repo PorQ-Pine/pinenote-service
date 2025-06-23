@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=org.pinenote.PineNoteCtl
+Exec=/usr/bin/pinenote-service
+SystemdService=pinenote.service

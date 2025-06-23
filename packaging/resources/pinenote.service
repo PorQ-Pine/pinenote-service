@@ -1,0 +1,12 @@
+[Unit]
+Description=Pinenote Service
+PartOf=graphical-session.target
+
+[Service]
+Type=dbus
+BusName=org.pinenote.PineNoteCtl
+ExecStart=/usr/bin/pinenote-service
+Slice=session.slice
+
+[Install]
+Alias=dbus-org.pinenote.service
