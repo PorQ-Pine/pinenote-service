@@ -9,4 +9,5 @@ ExecStart=/usr/bin/pinenote-service
 Slice=session.slice
 
 [Install]
-Alias=dbus-org.pinenote.service
+Alias=dbus-org.pinenote.PineNoteCtl.service
+WantedBy=graphical-session.target
