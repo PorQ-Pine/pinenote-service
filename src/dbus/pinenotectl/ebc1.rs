@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use pinenote_service::types::rockchip_ebc::{DitherMode, DriverMode, Hint as CoreHint};
 use tokio::sync::{mpsc, oneshot};
 use zbus::{fdo, interface, object_server::SignalEmitter};
@@ -221,8 +223,18 @@ impl Ebc1 {
         self.ebc_tx
             .send(ebc::Property::SetDriverMode(driver_mode))
             .await
-            .map_err(dbus::internal_error)
-            .map_err(zbus::Error::from)
+            .map_err(dbus::internal_error)?;
+
+        // Dirty hack to let some time for the driver to update. Ideally we'd
+        // want an event from the Core, but that's not implemented atm.
+        let _ = tokio::time::timeout(Duration::from_secs(5), async {
+            while self.driver_mode().await != Ok(driver_mode) {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await;
+
+        Ok(())
     }
 
     #[zbus(property)]
