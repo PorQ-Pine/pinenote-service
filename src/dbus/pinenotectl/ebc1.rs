@@ -216,9 +216,17 @@ impl Ebc1 {
 
     #[zbus(property)]
     async fn set_driver_mode(&self, driver_mode: DriverMode) -> Result<(), zbus::Error> {
-        if driver_mode == DriverMode::ZeroWaveform {
+        use DriverMode::*;
+        if driver_mode == ZeroWaveform {
             Err(fdo::Error::InvalidArgs("Value not supported".into()))?
         }
+
+        let current = self.driver_mode().await?;
+
+        match current {
+            Normal | Fast => (),
+            _ => Err(fdo::Error::Failed("Refusing to change mode".into()))?,
+        };
 
         self.ebc_tx
             .send(ebc::Property::SetDriverMode(driver_mode))
