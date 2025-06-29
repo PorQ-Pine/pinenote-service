@@ -3,7 +3,7 @@ name = "pinenote-service"
 version = "1.0.0"
 edition = "2024"
 description = "Management dervice for Pine64's PineNote device"
-repository = "https://https://git.sr.ht/~phantomas/pinenote-service"
+repository = "https://git.sr.ht/~phantomas/pinenote-service"
 license = "GPL-3.0-or-later"
 authors = [
     "phantomas <phantomas@phantomas.xyz"
