@@ -8,6 +8,8 @@ license = "GPL-3.0-or-later"
 authors = [
     "phantomas <phantomas@phantomas.xyz"
 ]
+keywords = [ "pine64", "pinenote" ]
+categories = [ "hardware-support" ]
 
 [dependencies]
 nix = { version = "0.30.0", features=["ioctl"] }
