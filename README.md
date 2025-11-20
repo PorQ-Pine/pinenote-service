@@ -1,3 +1,5 @@
+Cloned from https://git.sr.ht/~phantomas/pinenote-service for convenience
+
 # PineNote Service
 
 PineNote Service aims to be a central, dbus-aware service to manage various
