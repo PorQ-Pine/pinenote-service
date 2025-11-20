@@ -19,8 +19,13 @@ anyhow = "1.0"
 tokio = { version = "1.45.1", features=["full"] }
 zbus = { version = "5.7.1", default-features = false, features = ["tokio"] }
 uuid = { version = "1.17.0", features = ["v4"] }
-swayipc-async = "2.1.0"
 futures-lite = "2.6.0"
 nalgebra = "0.33.2"
 image = "0.25.6"
 serde = "1.0"
+swayipc-async = {version = "2.1.0", optional = true }
+
+[features]
+default = ["sway"]
+bridges = []
+sway = ["swayipc-async", "bridges"]
