@@ -10,12 +10,18 @@ pub mod bridge {
     #[cfg(feature = "sway")]
     pub mod sway;
 
+    #[cfg(feature = "quill-niri")]
+    pub mod quill_niri;
+
     pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Option<String> {
         #[cfg(feature = "sway")]
         let res = sway::start(tx.clone()).await;
 
+        #[cfg(feature = "quill-niri")]
+        let res = quill_niri::start(tx.clone()).await;
+
         // Add here other bridges with AND for the check to work
-        #[cfg(not(feature = "sway"))]
+        #[cfg(not(any(feature = "sway", feature = "quill-niri")))]
         {
             compile_error!(
                 "bridges feature is enabled but no specific bridges are enabled, this is wrong, enable sway feature for example"
@@ -56,6 +62,8 @@ async fn main() -> Result<()> {
     let selected_bridge = String::new();
 
     let _dbus_ctx = dbus::Context::initialize(tx.clone(), selected_bridge).await?;
+
+    println!("Started?");
 
     match signal::ctrl_c().await {
         Ok(()) => {}
