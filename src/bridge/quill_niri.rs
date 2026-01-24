@@ -1,18 +1,24 @@
-use std::sync::Mutex;
-
-use crate::ebc;
-use anyhow::{Context, Result, bail};
+use crate::ebc::{self, CommandSender};
+use anyhow::{Context, Result};
 use niri_ipc::{Event, Request, Response, WindowGeometry, socket::Socket};
-use quill_data_provider_lib::{EinkWindowSetting, load_settings};
+use nix::libc::pid_t;
+use pinenote_service::types::{Rect, rockchip_ebc::Hint};
+use quill_data_provider_lib::{
+    Dithering, EinkWindowSetting, RedrawOptions, TresholdLevel, load_settings,
+};
 use tokio::sync::{
     mpsc::{self, Sender},
     oneshot,
 };
 
+use std::collections::{HashMap, HashSet};
+
 const QUILL_NIRI_BRIDGE: &str = "Quill niri";
 
 pub struct QuillNiriBridge {
     settings: Vec<EinkWindowSetting>,
+    app_meta: HashMap<pid_t, (String, HashSet<i64>)>,
+    window_meta: HashMap<i64, (String, NiriWindows)>,
 }
 
 impl QuillNiriBridge {
@@ -24,13 +30,84 @@ impl QuillNiriBridge {
             Ok(loaded_settings) => settings = loaded_settings,
             Err(err) => eprintln!("Failed to load settings: {:?}", err),
         }
-        let bridge = Self { settings };
+        let bridge = Self {
+            settings,
+            app_meta: HashMap::new(),
+            window_meta: HashMap::new(),
+        };
         Ok(bridge)
     }
 
-    pub async fn main_manage(&mut self, tx: &Sender<ebc::Command>) {
+    async fn remove_all(&mut self, tx: &mut ebc::CommandSender) -> Result<()> {
+        let app_keys: Vec<String> = self.app_meta.values().map(|(key, _)| key.clone()).collect();
+        for key in app_keys {
+            tx.send(ebc::command::Application::Remove(key)).await.ok();
+        }
+        self.app_meta.clear();
+        self.window_meta.clear();
+        Ok(())
+    }
+
+    async fn add_app(&mut self, pid: pid_t, tx: &mut ebc::CommandSender) -> Result<String> {
+        let (ret_tx, ret_rx) = oneshot::channel::<String>();
+        let app_key = tx
+            .with_reply(ebc::command::Application::Add(pid, ret_tx), ret_rx)
+            .await
+            .context(format!("Failed to add application with PID {}", pid))?;
+
+        self.app_meta
+            .insert(pid, (app_key.clone(), Default::default()));
+
+        Ok(app_key)
+    }
+
+    async fn add_window(
+        &mut self,
+        win: NiriWindows,
+        app_key: String,
+        tx: &mut ebc::CommandSender,
+    ) -> Result<()> {
+        let (rtx, rx) = oneshot::channel::<String>();
+
+        let cmd = ebc::command::Window::Add {
+            app_key: app_key.clone(),
+            title: win.title.clone(),
+            area: Rect::from_xywh(
+                win.geometry.x,
+                win.geometry.y,
+                win.geometry.width,
+                win.geometry.height,
+            ),
+            hint: Some(setting_to_hint(&win.setting, win.focused).await),
+            visible: true,
+            fullscreen: false,
+            z_index: 0,
+            reply: rtx,
+        };
+
+        let win_key = tx
+            .with_reply(cmd, rx)
+            .await
+            .with_context(|| format!("Failed to add window for app '{}'", win.app_id))?;
+
+        let win_id = win.geometry.id as i64;
+        let pid = win_id as pid_t;
+
+        self.window_meta.insert(win_id, (win_key, win.clone()));
+        if let Some(app) = self.app_meta.get_mut(&pid) {
+            app.1.insert(win_id);
+        }
+
+        Ok(())
+    }
+
+    pub async fn main_manage(&mut self, tx: &mut ebc::CommandSender) {
+        if let Err(e) = self.remove_all(tx).await {
+            eprintln!("Failed to remove all apps/windows: {:?}", e);
+        }
+
         let mut socket = get_socket().await;
-        // println!("Requesting windows");
+        println!("Requesting windows");
 
         let Some(windows_regular) = try_fetch(&mut socket, Request::Windows, |r| match r {
             Response::Windows(w) => Some(w),
@@ -38,7 +115,6 @@ impl QuillNiriBridge {
         }) else {
             return;
         };
-        println!("Windows are: {:?}", windows_regular);
 
         let Some(workspaces) = try_fetch(&mut socket, Request::Workspaces, |r| match r {
             Response::Workspaces(w) => Some(w),
@@ -46,7 +122,6 @@ impl QuillNiriBridge {
         }) else {
             return;
         };
-        println!("Workspaces are: {:?}", windows_regular);
         let focused_workspace_id = workspaces
             .iter()
             .find(|ws| ws.is_focused)
@@ -59,7 +134,6 @@ impl QuillNiriBridge {
         }) else {
             return;
         };
-        // println!("Outputs are: {:#?}", outputs);
         let (screen_w, screen_h) = {
             let output = match outputs.get(Self::OUTPUT_NAME) {
                 Some(o) => o,
@@ -77,7 +151,6 @@ impl QuillNiriBridge {
                 }
             }
         };
-        println!("Screen size is: {}x{}", screen_w, screen_h);
 
         let Some(windows_geometries) =
             try_fetch(&mut socket, Request::WindowGeometries, |r| match r {
@@ -87,7 +160,6 @@ impl QuillNiriBridge {
         else {
             return;
         };
-        println!("Windows geometries are: {:?}", windows_geometries);
 
         let mut new_niri_windows: Vec<NiriWindows> = Vec::new();
 
@@ -113,6 +185,8 @@ impl QuillNiriBridge {
                             if geometry.id == window.id {
                                 new_niri_windows.push(NiriWindows {
                                     app_id: app_id.clone(),
+                                    title: window.title.clone().unwrap_or_default(),
+                                    focused: window.is_focused,
                                     setting: setting.clone(),
                                     geometry: geometry.clone(),
                                 });
@@ -130,12 +204,26 @@ impl QuillNiriBridge {
 
         println!("New niri windows are: {:#?}", new_niri_windows);
 
+        for win in new_niri_windows {
+            let pid = win.geometry.id as pid_t;
+            match self.add_app(pid, tx).await {
+                Ok(app_key) => {
+                    if let Err(e) = self.add_window(win, app_key, tx).await {
+                        eprintln!("Failed to add window: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to add app: {:?}", e);
+                }
+            }
+        }
         println!("Main manage exit");
     }
 
     pub async fn run(mut self, tx: Sender<ebc::Command>) -> Result<()> {
         println!("Bridge niri started");
         let mut socket = get_socket().await;
+        let mut tx: CommandSender = tx.into();
 
         let reply = socket.send(Request::EventStream).unwrap();
         if matches!(reply, Ok(Response::Handled)) {
@@ -145,27 +233,27 @@ impl QuillNiriBridge {
                 match event {
                     Event::WindowsChanged { .. } => {
                         println!("Trigger: WindowsChanged");
-                        self.main_manage(&tx).await;
+                        self.main_manage(&mut tx).await;
                     }
                     Event::WindowOpenedOrChanged { .. } => {
                         println!("Trigger: WindowOpenedOrChanged");
-                        self.main_manage(&tx).await;
+                        self.main_manage(&mut tx).await;
                     }
                     Event::WindowClosed { .. } => {
                         println!("Trigger: WindowClosed");
-                        self.main_manage(&tx).await;
+                        self.main_manage(&mut tx).await;
                     }
                     Event::WindowLayoutsChanged { .. } => {
                         println!("Trigger: WindowLayoutsChanged");
-                        self.main_manage(&tx).await;
+                        self.main_manage(&mut tx).await;
                     }
                     Event::WindowFocusChanged { .. } => {
                         println!("Trigger: WindowFocusChanged");
-                        self.main_manage(&tx).await;
+                        self.main_manage(&mut tx).await;
                     }
                     Event::WorkspaceActivated { .. } => {
                         println!("Trigger: WorkspaceActivated");
-                        self.main_manage(&tx).await;
+                        self.main_manage(&mut tx).await;
                     }
                     _ => {
                         // println!("Received event: {:?}", event);
@@ -204,6 +292,8 @@ async fn get_socket() -> Socket {
 #[derive(Clone, Debug)]
 struct NiriWindows {
     app_id: String,
+    title: String,
+    focused: bool,
     setting: EinkWindowSetting,
     geometry: WindowGeometry,
 }
@@ -249,4 +339,74 @@ where
             None
         }
     }
+}
+
+async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool) -> Hint {
+    use pinenote_service::types::rockchip_ebc::{HintBitDepth, HintConvertMode};
+    use quill_data_provider_lib::{BitDepth, Conversion, DriverMode, Redraw};
+
+    let mut treshold: TresholdLevel = Default::default();
+    let mut dithering_mode: Dithering = Default::default();
+    let mut redraw_options: RedrawOptions = Default::default();
+
+    let hint = match &setting.settings {
+        DriverMode::Normal(bit_depth) => match bit_depth {
+            BitDepth::Y1(conv) => {
+                let cm = match conv {
+                    Conversion::Tresholding(level) => {
+                        treshold = *level;
+                        HintConvertMode::Threshold
+                    }
+                    Conversion::Dithering(mode) => {
+                        dithering_mode = *mode;
+                        HintConvertMode::Dither
+                    }
+                };
+                Hint::new(HintBitDepth::Y1, cm, false)
+            }
+            BitDepth::Y2(conv, redraw) => {
+                let cm = match conv {
+                    Conversion::Tresholding(level) => {
+                        treshold = *level;
+                        HintConvertMode::Threshold
+                    }
+                    Conversion::Dithering(mode) => {
+                        dithering_mode = *mode;
+                        HintConvertMode::Dither
+                    }
+                };
+                let r: bool = match redraw {
+                    Redraw::FastDrawing(options) => {
+                        redraw_options = *options;
+                        true
+                    }
+                    Redraw::DisableFastDrawing => false,
+                };
+                Hint::new(HintBitDepth::Y2, cm, r)
+            }
+            BitDepth::Y4(redraw) => {
+                let r: bool = match redraw {
+                    Redraw::FastDrawing(options) => {
+                        redraw_options = *options;
+                        true
+                    }
+                    Redraw::DisableFastDrawing => false,
+                };
+                Hint::new(HintBitDepth::Y4, HintConvertMode::Threshold, r)
+            }
+        },
+        DriverMode::Fast(mode) => {
+            dithering_mode = *mode;
+            Hint::new(HintBitDepth::Y1, HintConvertMode::Dither, false)
+        }
+    };
+
+    if focused {
+        treshold.set().await;
+        dithering_mode.set().await;
+        redraw_options.set().await;
+        setting.settings.set().await; // Sets normal or fast globally based on this focused window settings
+    }
+
+    hint
 }
