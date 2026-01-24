@@ -30,7 +30,7 @@ impl QuillNiriBridge {
 
     pub async fn main_manage(&mut self, tx: &Sender<ebc::Command>) {
         let mut socket = get_socket().await;
-        println!("Requesting windows");
+        // println!("Requesting windows");
 
         let Some(windows_regular) = try_fetch(&mut socket, Request::Windows, |r| match r {
             Response::Windows(w) => Some(w),
@@ -38,7 +38,7 @@ impl QuillNiriBridge {
         }) else {
             return;
         };
-        println!("Windows are: {:#?}", windows_regular);
+        println!("Windows are: {:?}", windows_regular);
 
         let Some(workspaces) = try_fetch(&mut socket, Request::Workspaces, |r| match r {
             Response::Workspaces(w) => Some(w),
@@ -46,7 +46,7 @@ impl QuillNiriBridge {
         }) else {
             return;
         };
-        println!("Workspaces are: {:#?}", windows_regular);
+        println!("Workspaces are: {:?}", windows_regular);
         let focused_workspace_id = workspaces
             .iter()
             .find(|ws| ws.is_focused)
@@ -59,7 +59,7 @@ impl QuillNiriBridge {
         }) else {
             return;
         };
-        println!("Outputs are: {:#?}", outputs);
+        // println!("Outputs are: {:#?}", outputs);
         let (screen_w, screen_h) = {
             let output = match outputs.get(Self::OUTPUT_NAME) {
                 Some(o) => o,
@@ -69,23 +69,16 @@ impl QuillNiriBridge {
                 }
             };
 
-            let mode_idx = match output.current_mode {
-                Some(idx) => idx,
+            match output.logical {
+                Some(logical_mode) => (logical_mode.width as i32, logical_mode.height as i32),
                 None => {
-                    eprintln!("Error: No current mode set for output.");
-                    return;
-                }
-            };
-
-            match output.modes.get(mode_idx) {
-                Some(mode) => (mode.width as i32, mode.height as i32),
-                None => {
-                    eprintln!("Error: Current mode index {} is out of bounds.", mode_idx);
+                    eprintln!("No logical screen info");
                     return;
                 }
             }
         };
-        
+        println!("Screen size is: {}x{}", screen_w, screen_h);
+
         let Some(windows_geometries) =
             try_fetch(&mut socket, Request::WindowGeometries, |r| match r {
                 Response::WindowGeometries(w) => Some(w),
@@ -94,7 +87,7 @@ impl QuillNiriBridge {
         else {
             return;
         };
-        println!("Windows geometries are: {:#?}", windows_geometries);
+        println!("Windows geometries are: {:?}", windows_geometries);
 
         let mut new_niri_windows: Vec<NiriWindows> = Vec::new();
 
@@ -129,10 +122,14 @@ impl QuillNiriBridge {
                 }
             }
         }
-        println!("New niri windows are: {:?}", new_niri_windows);
-        cleanup_and_position_windows(&mut new_niri_windows, screen_w, screen_h);
 
-        // Now, remove windows that are not visible right now
+        // TODO: remove floating windows from this, or maybe not???
+        // Clip windows that are on screen above 10px
+        new_niri_windows.sort_by_key(|w| w.geometry.x);
+        windows_on_screen(&mut new_niri_windows, screen_w, screen_h);
+
+        println!("New niri windows are: {:#?}", new_niri_windows);
+
         println!("Main manage exit");
     }
 
@@ -171,7 +168,7 @@ impl QuillNiriBridge {
                         self.main_manage(&tx).await;
                     }
                     _ => {
-                        println!("Received event: {:?}", event);
+                        // println!("Received event: {:?}", event);
                     }
                 }
             }
@@ -211,35 +208,31 @@ struct NiriWindows {
     geometry: WindowGeometry,
 }
 
-fn cleanup_and_position_windows(
-    windows: &mut Vec<NiriWindows>,
-    screen_width: i32,
-    screen_height: i32,
-) {
-    // 1. Remove windows that are completely off-screen
-    windows.retain(|w| {
-        let geo = &w.geometry;
+fn windows_on_screen(windows: &mut Vec<NiriWindows>, screen_width: i32, screen_height: i32) {
+    windows.retain_mut(|w| {
+        let gx = w.geometry.x;
+        let gy = w.geometry.y;
+        let gw = w.geometry.width;
+        let gh = w.geometry.height;
 
-        let is_completely_off = (geo.x + geo.width <= 0) ||   // Too far left
-            (geo.x >= screen_width)   ||   // Too far right
-            (geo.y + geo.height <= 0) ||   // Too far up
-            (geo.y >= screen_height); // Too far down
+        let left = gx.max(0);
+        let top = gy.max(0);
+        let right = (gx + gw).min(screen_width);
+        let bottom = (gy + gh).min(screen_height);
 
-        !is_completely_off // Keep if NOT completely off
+        let width = right - left;
+        let height = bottom - top;
+
+        if left < right && top < bottom && width >= 10 && height >= 10 {
+            w.geometry.x = left;
+            w.geometry.y = top;
+            w.geometry.width = right - left;
+            w.geometry.height = bottom - top;
+            true
+        } else {
+            false
+        }
     });
-
-    // 2. Clamp the remaining windows so they are fully visible
-    for window in windows.iter_mut() {
-        let geo = &mut window.geometry;
-
-        // Shrink if window is larger than screen
-        geo.width = geo.width.min(screen_width);
-        geo.height = geo.height.min(screen_height);
-
-        // Clamp coordinates
-        geo.x = geo.x.clamp(0, screen_width - geo.width);
-        geo.y = geo.y.clamp(0, screen_height - geo.height);
-    }
 }
 
 fn try_fetch<T, F>(socket: &mut Socket, req: Request, extract: F) -> Option<T>
