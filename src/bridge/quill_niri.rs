@@ -1,37 +1,42 @@
 use crate::ebc::{self, CommandSender};
 use anyhow::{Context, Result};
+use inotify::{Inotify, WatchMask};
 use niri_ipc::{Event, Request, Response, WindowGeometry, socket::Socket};
 use nix::libc::pid_t;
 use pinenote_service::types::{Rect, rockchip_ebc::Hint};
+use qoms_lib::find_session;
 use quill_data_provider_lib::{
     Dithering, EinkWindowSetting, RedrawOptions, TresholdLevel, load_settings,
 };
-use tokio::sync::{
-    mpsc::{self, Sender},
-    oneshot,
+use tokio::{
+    sync::{
+        Mutex,
+        mpsc::{self, Sender},
+        oneshot,
+    },
+    time::sleep,
 };
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::OnceLock,
+    time::Duration,
+};
 
 const QUILL_NIRI_BRIDGE: &str = "Quill niri";
 
 pub struct QuillNiriBridge {
-    settings: Vec<EinkWindowSetting>,
     app_meta: HashMap<pid_t, (String, HashSet<i64>)>,
     window_meta: HashMap<i64, (String, NiriWindows)>,
 }
+
+static SETTINGS: OnceLock<Mutex<Vec<EinkWindowSetting>>> = OnceLock::new();
 
 impl QuillNiriBridge {
     const OUTPUT_NAME: &str = "DPI-1";
 
     pub async fn new() -> Result<Self> {
-        let mut settings: Vec<EinkWindowSetting> = Vec::new();
-        match load_settings() {
-            Ok(loaded_settings) => settings = loaded_settings,
-            Err(err) => eprintln!("Failed to load settings: {:?}", err),
-        }
         let bridge = Self {
-            settings,
             app_meta: HashMap::new(),
             window_meta: HashMap::new(),
         };
@@ -166,7 +171,8 @@ impl QuillNiriBridge {
         // Only those with settings attached to them
         for window in windows_regular {
             if let Some(app_id) = window.app_id {
-                for setting in self.settings.iter() {
+                let settings = SETTINGS.get_or_init(|| Mutex::new(Vec::new())).lock().await;
+                for setting in settings.iter() {
                     if app_id == setting.app_id {
                         // Make sure it's on the same workspace
                         match window.workspace_id {
@@ -227,37 +233,26 @@ impl QuillNiriBridge {
 
         let reply = socket.send(Request::EventStream).unwrap();
         if matches!(reply, Ok(Response::Handled)) {
-            let mut read_event = socket.read_events();
+            let (evt_tx, mut evt_rx) = mpsc::unbounded_channel();
 
-            while let Ok(event) = read_event() {
+            tokio::task::spawn_blocking(move || {
+                let mut read_event = socket.read_events();
+                while let Ok(event) = read_event() {
+                    let _ = evt_tx.send(event);
+                }
+            });
+
+            while let Some(event) = evt_rx.recv().await {
                 match event {
-                    Event::WindowsChanged { .. } => {
-                        println!("Trigger: WindowsChanged");
+                    Event::WindowsChanged { .. }
+                    | Event::WindowOpenedOrChanged { .. }
+                    | Event::WindowClosed { .. }
+                    | Event::WindowLayoutsChanged { .. }
+                    | Event::WindowFocusChanged { .. }
+                    | Event::WorkspaceActivated { .. } => {
                         self.main_manage(&mut tx).await;
                     }
-                    Event::WindowOpenedOrChanged { .. } => {
-                        println!("Trigger: WindowOpenedOrChanged");
-                        self.main_manage(&mut tx).await;
-                    }
-                    Event::WindowClosed { .. } => {
-                        println!("Trigger: WindowClosed");
-                        self.main_manage(&mut tx).await;
-                    }
-                    Event::WindowLayoutsChanged { .. } => {
-                        println!("Trigger: WindowLayoutsChanged");
-                        self.main_manage(&mut tx).await;
-                    }
-                    Event::WindowFocusChanged { .. } => {
-                        println!("Trigger: WindowFocusChanged");
-                        self.main_manage(&mut tx).await;
-                    }
-                    Event::WorkspaceActivated { .. } => {
-                        println!("Trigger: WorkspaceActivated");
-                        self.main_manage(&mut tx).await;
-                    }
-                    _ => {
-                        // println!("Received event: {:?}", event);
-                    }
+                    _ => {}
                 }
             }
         }
@@ -265,6 +260,24 @@ impl QuillNiriBridge {
         eprintln!("Quill niri bridge ended");
         Ok(())
     }
+}
+
+pub async fn load_settings_internal(username: String) -> bool {
+    println!("Reading settings...");
+    let settings = match load_settings(username.clone()) {
+        Ok(settings) => settings,
+        Err(err) => {
+            eprintln!("Load settings internal failed: {:?}", err);
+            return false;
+        }
+    };
+    println!(
+        "Readed settings succesfully for username: {}",
+        username.clone()
+    );
+    let mut guard = SETTINGS.get_or_init(|| Mutex::new(Vec::new())).lock().await;
+    *guard = settings;
+    true
 }
 
 pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
@@ -276,17 +289,113 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
         let _ = quill_niri_bridge.run(tx).await;
     });
 
+    tokio::spawn(async move {
+        println!("Settings watcher init");
+        const SHORT_DELAY: Duration = Duration::from_secs(1);
+        const LONG_DELAY: Duration = Duration::from_secs(3);
+        SETTINGS.get_or_init(|| Mutex::new(Vec::new()));
+        let mut delay = SHORT_DELAY;
+        let mut username = "".to_string();
+        let mut inotify = Inotify::init().expect("Failed to initialize inotify");
+        let mut inotify_set = false;
+        let mut inotify_descriptors = Vec::new();
+        loop {
+            println!("Settings watcher loop");
+            if let Some((_id, username2)) = find_session().await {
+                if username != username2 || !inotify_set {
+                    let path = format!("/home/{}/.config/eink_window_settings/", username2);
+
+                    for desc in inotify_descriptors.drain(..) {
+                        let _ = inotify.watches().remove(desc);
+                    }
+
+                    match inotify.watches().add(path, WatchMask::ALL_EVENTS) {
+                        Ok(descriptor) => {
+                            inotify_descriptors.push(descriptor);
+                            inotify_set = true;
+                            username = username2;
+                            if load_settings_internal(username.clone()).await {
+                                delay = LONG_DELAY;
+                            } else {
+                                delay = SHORT_DELAY;
+                            }
+                            println!("Inotify set!");
+                        }
+                        Err(err) => eprintln!("Inotify failed: {:?}", err),
+                    }
+                }
+            } else {
+                eprintln!("Failed to get session");
+            }
+
+            if inotify_set {
+                let mut buffer = [0; 254];
+                let mut readed_settings = false;
+                loop {
+                    match inotify.read_events(&mut buffer) {
+                        Ok(_) => {
+                            if !readed_settings {
+                                if load_settings_internal(username.clone()).await {
+                                    delay = LONG_DELAY;
+                                } else {
+                                    delay = SHORT_DELAY;
+                                }
+                                readed_settings = true;
+                            }
+                        }
+                        Err(e) => {
+                            if e.kind() == std::io::ErrorKind::WouldBlock {
+                                break;
+                            }
+                            eprintln!("Inotify failed: {:?}", e);
+                            inotify_set = false;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            println!("Delay in watcher lopp... {:?}", delay);
+            sleep(delay).await;
+        }
+    });
+
     Ok(QUILL_NIRI_BRIDGE.into())
 }
 
 async fn get_socket() -> Socket {
-    let niri_socket_env = std::env::var("NIRI_SOCKET");
-    let socket = if let Ok(niri_socket) = niri_socket_env.clone() {
-        Socket::connect_to(niri_socket).unwrap()
-    } else {
-        Socket::connect().unwrap()
-    };
-    socket
+    let base_run_dir = "/run/user";
+
+    loop {
+        // 1. Read the base /run/user directory
+        if let Ok(mut user_dirs) = tokio::fs::read_dir(base_run_dir).await {
+            // Iterate through user folders (e.g., /run/user/1000)
+            while let Ok(Some(user_entry)) = user_dirs.next_entry().await {
+                let user_path = user_entry.path();
+                
+                if user_path.is_dir() {
+                    // 2. Read the contents of each user directory
+                    if let Ok(mut sockets) = tokio::fs::read_dir(&user_path).await {
+                        while let Ok(Some(socket_entry)) = sockets.next_entry().await {
+                            let path = socket_entry.path();
+                            let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+
+                            // 3. Check for niri-wayland prefix
+                            if file_name.starts_with("niri-wayland-") {
+                                // Try to connect; if it succeeds, return the socket
+                                if let Ok(socket) = Socket::connect_to(&path) {
+                                    return socket;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Wait a second before re-scanning the filesystem
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -351,9 +460,9 @@ async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool) -> Hint {
 
     let hint = match &setting.settings {
         DriverMode::Normal(bit_depth) => match bit_depth {
-            BitDepth::Y1(conv) => {
+            BitDepth::Y1(conv, level) => {
                 let cm = match conv {
-                    Conversion::Tresholding(level) => {
+                    Conversion::Tresholding => {
                         treshold = *level;
                         HintConvertMode::Threshold
                     }
@@ -366,8 +475,7 @@ async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool) -> Hint {
             }
             BitDepth::Y2(conv, redraw) => {
                 let cm = match conv {
-                    Conversion::Tresholding(level) => {
-                        treshold = *level;
+                    Conversion::Tresholding => {
                         HintConvertMode::Threshold
                     }
                     Conversion::Dithering(mode) => {
