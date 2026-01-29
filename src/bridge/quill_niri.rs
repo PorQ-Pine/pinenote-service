@@ -6,7 +6,7 @@ use nix::libc::pid_t;
 use pinenote_service::types::{Rect, rockchip_ebc::Hint};
 use qoms_lib::find_session;
 use quill_data_provider_lib::{
-    Dithering, EinkWindowSetting, RedrawOptions, TresholdLevel, load_settings,
+    Dithering, DriverMode, EinkWindowSetting, RedrawOptions, TresholdLevel, load_settings,
 };
 use tokio::{
     sync::{
@@ -28,6 +28,7 @@ const QUILL_NIRI_BRIDGE: &str = "Quill niri";
 pub struct QuillNiriBridge {
     app_meta: HashMap<pid_t, (String, HashSet<i64>)>,
     window_meta: HashMap<i64, (String, NiriWindows)>,
+    previous_windows: Vec<NiriWindows>,
 }
 
 static SETTINGS: OnceLock<Mutex<Vec<EinkWindowSetting>>> = OnceLock::new();
@@ -39,6 +40,7 @@ impl QuillNiriBridge {
         let bridge = Self {
             app_meta: HashMap::new(),
             window_meta: HashMap::new(),
+            previous_windows: Vec::new(),
         };
         Ok(bridge)
     }
@@ -71,6 +73,8 @@ impl QuillNiriBridge {
         win: NiriWindows,
         app_key: String,
         tx: &mut ebc::CommandSender,
+        scale: f64,
+        socket: &mut Socket,
     ) -> Result<()> {
         let (rtx, rx) = oneshot::channel::<String>();
 
@@ -78,12 +82,12 @@ impl QuillNiriBridge {
             app_key: app_key.clone(),
             title: win.title.clone(),
             area: Rect::from_xywh(
-                win.geometry.x,
-                win.geometry.y,
-                win.geometry.width,
-                win.geometry.height,
+                (win.geometry.x  as f64 * scale) as i32,
+                (win.geometry.y as f64 * scale) as i32,
+                (win.geometry.width as f64 * scale) as i32,
+                (win.geometry.height as f64 * scale) as i32,
             ),
-            hint: Some(setting_to_hint(&win.setting, win.focused).await),
+            hint: Some(setting_to_hint(&win.setting, win.focused, socket).await),
             visible: true,
             fullscreen: false,
             z_index: 0,
@@ -139,7 +143,7 @@ impl QuillNiriBridge {
         }) else {
             return;
         };
-        let (screen_w, screen_h) = {
+        let (screen_w, screen_h, scale) = {
             let output = match outputs.get(Self::OUTPUT_NAME) {
                 Some(o) => o,
                 None => {
@@ -149,7 +153,11 @@ impl QuillNiriBridge {
             };
 
             match output.logical {
-                Some(logical_mode) => (logical_mode.width as i32, logical_mode.height as i32),
+                Some(logical_mode) => (
+                    logical_mode.width as i32,
+                    logical_mode.height as i32,
+                    logical_mode.scale,
+                ),
                 None => {
                     eprintln!("No logical screen info");
                     return;
@@ -194,7 +202,7 @@ impl QuillNiriBridge {
                                     title: window.title.clone().unwrap_or_default(),
                                     focused: window.is_focused,
                                     setting: setting.clone(),
-                                    geometry: geometry.clone(),
+                                    geometry: OurWindowGeometry::from(geometry.clone()),
                                 });
                             }
                         }
@@ -204,9 +212,16 @@ impl QuillNiriBridge {
         }
 
         // TODO: remove floating windows from this, or maybe not???
-        // Clip windows that are on screen above 10px
         new_niri_windows.sort_by_key(|w| w.geometry.x);
         windows_on_screen(&mut new_niri_windows, screen_w, screen_h);
+
+        if self.previous_windows == new_niri_windows {
+            println!("Windows did not change, not doing anything");
+            return;
+        } else {
+            println!("Windows changed, updating things");
+            self.previous_windows = new_niri_windows.clone();
+        }
 
         println!("New niri windows are: {:#?}", new_niri_windows);
 
@@ -214,7 +229,7 @@ impl QuillNiriBridge {
             let pid = win.geometry.id as pid_t;
             match self.add_app(pid, tx).await {
                 Ok(app_key) => {
-                    if let Err(e) = self.add_window(win, app_key, tx).await {
+                    if let Err(e) = self.add_window(win, app_key, tx, scale, &mut socket).await {
                         eprintln!("Failed to add window: {:?}", e);
                     }
                 }
@@ -250,6 +265,12 @@ impl QuillNiriBridge {
                     | Event::WindowLayoutsChanged { .. }
                     | Event::WindowFocusChanged { .. }
                     | Event::WorkspaceActivated { .. } => {
+                        // We clear the channer before running manage so we are sure the windows are in their final destination
+                        sleep(Duration::from_millis(10)).await;
+                        while let Ok(_) = evt_rx.try_recv() {
+                            // Just dropping the events
+                            sleep(Duration::from_millis(5)).await;
+                        }
                         self.main_manage(&mut tx).await;
                     }
                     _ => {}
@@ -286,13 +307,9 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
         .context("While trying to start Quill niri bridge")?;
 
     tokio::spawn(async move {
-        let _ = quill_niri_bridge.run(tx).await;
-    });
-
-    tokio::spawn(async move {
         println!("Settings watcher init");
         const SHORT_DELAY: Duration = Duration::from_secs(1);
-        const LONG_DELAY: Duration = Duration::from_secs(3);
+        const LONG_DELAY: Duration = Duration::from_secs(5);
         SETTINGS.get_or_init(|| Mutex::new(Vec::new()));
         let mut delay = SHORT_DELAY;
         let mut username = "".to_string();
@@ -300,7 +317,7 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
         let mut inotify_set = false;
         let mut inotify_descriptors = Vec::new();
         loop {
-            println!("Settings watcher loop");
+            // println!("Settings watcher loop");
             if let Some((_id, username2)) = find_session().await {
                 if username != username2 || !inotify_set {
                     let path = format!("/home/{}/.config/eink_window_settings/", username2);
@@ -355,9 +372,16 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
                 }
             }
 
-            println!("Delay in watcher lopp... {:?}", delay);
+            // println!("Delay in watcher lopp... {:?}", delay);
             sleep(delay).await;
         }
+    });
+
+    // So settings load on start of the bridge
+    sleep(Duration::from_secs(1)).await;
+
+    tokio::spawn(async move {
+        let _ = quill_niri_bridge.run(tx).await;
     });
 
     Ok(QUILL_NIRI_BRIDGE.into())
@@ -372,7 +396,7 @@ async fn get_socket() -> Socket {
             // Iterate through user folders (e.g., /run/user/1000)
             while let Ok(Some(user_entry)) = user_dirs.next_entry().await {
                 let user_path = user_entry.path();
-                
+
                 if user_path.is_dir() {
                     // 2. Read the contents of each user directory
                     if let Ok(mut sockets) = tokio::fs::read_dir(&user_path).await {
@@ -381,7 +405,7 @@ async fn get_socket() -> Socket {
                             let file_name = path.file_name().unwrap_or_default().to_string_lossy();
 
                             // 3. Check for niri-wayland prefix
-                            if file_name.starts_with("niri-wayland-") {
+                            if file_name.starts_with("niri.wayland-") {
                                 // Try to connect; if it succeeds, return the socket
                                 if let Ok(socket) = Socket::connect_to(&path) {
                                     return socket;
@@ -395,16 +419,39 @@ async fn get_socket() -> Socket {
 
         // 4. Wait a second before re-scanning the filesystem
         tokio::time::sleep(Duration::from_secs(1)).await;
+        eprintln!("Waiting for niri socket...");
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct NiriWindows {
     app_id: String,
     title: String,
     focused: bool,
     setting: EinkWindowSetting,
-    geometry: WindowGeometry,
+    geometry: OurWindowGeometry,
+}
+
+// Because niri doesn't do partialeq defines
+#[derive(Clone, Debug, PartialEq)]
+pub struct OurWindowGeometry {
+    pub id: u64,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+impl From<WindowGeometry> for OurWindowGeometry {
+    fn from(window: WindowGeometry) -> Self {
+        Self {
+            id: window.id,
+            x: window.x,
+            y: window.y,
+            width: window.width,
+            height: window.height,
+        }
+    }
 }
 
 fn windows_on_screen(windows: &mut Vec<NiriWindows>, screen_width: i32, screen_height: i32) {
@@ -450,7 +497,11 @@ where
     }
 }
 
-async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool) -> Hint {
+// Globals bad, but if I need to pass an argument though 3 functions for no reason only for checking if something changed, uh, let me commit this sin then
+static GLOBAL_EINK_SETTINGS: OnceLock<
+    Mutex<(TresholdLevel, Dithering, RedrawOptions, DriverMode)>,
+> = OnceLock::new();
+async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool, socket: &mut Socket) -> Hint {
     use pinenote_service::types::rockchip_ebc::{HintBitDepth, HintConvertMode};
     use quill_data_provider_lib::{BitDepth, Conversion, DriverMode, Redraw};
 
@@ -475,9 +526,7 @@ async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool) -> Hint {
             }
             BitDepth::Y2(conv, redraw) => {
                 let cm = match conv {
-                    Conversion::Tresholding => {
-                        HintConvertMode::Threshold
-                    }
+                    Conversion::Tresholding => HintConvertMode::Threshold,
                     Conversion::Dithering(mode) => {
                         dithering_mode = *mode;
                         HintConvertMode::Dither
@@ -510,10 +559,38 @@ async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool) -> Hint {
     };
 
     if focused {
-        treshold.set().await;
-        dithering_mode.set().await;
-        redraw_options.set().await;
-        setting.settings.set().await; // Sets normal or fast globally based on this focused window settings
+        let mut older_settings = GLOBAL_EINK_SETTINGS
+            .get_or_init(|| Mutex::new(Default::default()))
+            .lock()
+            .await;
+        let is_different_settings = match (&older_settings.3, &setting.settings) {
+            (DriverMode::Normal(_), DriverMode::Fast(_)) => true,
+            (DriverMode::Fast(_), DriverMode::Normal(_)) => true,
+            _ => false,
+        };
+        if older_settings.0 != treshold
+            || older_settings.1 != dithering_mode
+            || older_settings.2 != redraw_options
+            || is_different_settings
+        {
+            treshold.set().await;
+            dithering_mode.set().await;
+            redraw_options.set().await;
+            setting.settings.set().await; // Sets normal or fast globally based on this focused window settings
+            // Now we need to "rewrite" things on the screen
+            // Hacky but whatever
+            sleep(Duration::from_millis(25)).await;
+            socket
+                .send(Request::Action(niri_ipc::Action::ToggleDebugTint {}))
+                .ok();
+            sleep(Duration::from_millis(10)).await;
+            socket
+                .send(Request::Action(niri_ipc::Action::ToggleDebugTint {}))
+                .ok();
+
+            // Save to older settings
+            *older_settings = (treshold, dithering_mode, redraw_options, setting.settings);
+        }
     }
 
     hint
