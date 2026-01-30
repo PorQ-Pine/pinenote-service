@@ -498,8 +498,9 @@ where
 }
 
 // Globals bad, but if I need to pass an argument though 3 functions for no reason only for checking if something changed, uh, let me commit this sin then
+// Last bool is for initial applying
 static GLOBAL_EINK_SETTINGS: OnceLock<
-    Mutex<(TresholdLevel, Dithering, RedrawOptions, DriverMode)>,
+    Mutex<(TresholdLevel, Dithering, RedrawOptions, DriverMode, bool)>,
 > = OnceLock::new();
 async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool, socket: &mut Socket) -> Hint {
     use pinenote_service::types::rockchip_ebc::{HintBitDepth, HintConvertMode};
@@ -572,6 +573,7 @@ async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool, socket: &mu
             || older_settings.1 != dithering_mode
             || older_settings.2 != redraw_options
             || is_different_settings
+            || !older_settings.4
         {
             treshold.set().await;
             dithering_mode.set().await;
@@ -589,7 +591,7 @@ async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool, socket: &mu
                 .ok();
 
             // Save to older settings
-            *older_settings = (treshold, dithering_mode, redraw_options, setting.settings);
+            *older_settings = (treshold, dithering_mode, redraw_options, setting.settings, true);
         }
     }
 
