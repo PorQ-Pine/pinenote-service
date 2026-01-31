@@ -266,10 +266,10 @@ impl QuillNiriBridge {
                     | Event::WindowFocusChanged { .. }
                     | Event::WorkspaceActivated { .. } => {
                         // We clear the channer before running manage so we are sure the windows are in their final destination
-                        sleep(Duration::from_millis(10)).await;
+                        sleep(Duration::from_millis(25)).await;
                         while let Ok(_) = evt_rx.try_recv() {
                             // Just dropping the events
-                            sleep(Duration::from_millis(5)).await;
+                            sleep(Duration::from_millis(25)).await;
                         }
                         self.main_manage(&mut tx).await;
                     }
