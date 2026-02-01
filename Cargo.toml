@@ -5,32 +5,30 @@ edition = "2024"
 description = "Management dervice for Pine64's PineNote device"
 repository = "https://git.sr.ht/~phantomas/pinenote-service"
 license = "GPL-3.0-or-later"
-authors = [
-    "phantomas <phantomas@phantomas.xyz"
-]
-keywords = [ "pine64", "pinenote" ]
-categories = [ "hardware-support" ]
+authors = ["phantomas <phantomas@phantomas.xyz"]
+keywords = ["pine64", "pinenote"]
+categories = ["hardware-support"]
 
 [dependencies]
-nix = { version = "0.30.0", features=["ioctl"] }
+nix = { version = "0.30.0", features = ["ioctl"] }
 thiserror = "2.0.12"
 num_enum = "0.7.3"
 anyhow = "1.0"
-tokio = { version = "1.45.1", features=["full"] }
+tokio = { version = "1.45.1", features = ["full"] }
 zbus = { version = "5.7.1", default-features = false, features = ["tokio"] }
 uuid = { version = "1.17.0", features = ["v4"] }
 futures-lite = "2.6.0"
 nalgebra = "0.33.2"
 image = "0.25.6"
 serde = "1.0"
-swayipc-async = {version = "2.1.0", optional = true }
-niri-ipc = {path = "../../gui/niri/niri-ipc/", optional = true }
+swayipc-async = { version = "2.1.0", optional = true }
+niri-ipc = { path = "../../gui/niri/niri-ipc/", optional = true }
 quill-data-provider-lib = { path = "../../gui/quill_data_provider/quill-data-provider-lib/", optional = true }
-qoms_lib = {path = "../qoms/qoms_lib/", optional = true }
-inotify = "0.11"
+qoms_lib = { path = "../qoms/qoms_lib/", optional = true }
+inotify = { version = "0.11", optional = true }
 
 [features]
 default = ["bridges", "quill-niri"]
 bridges = []
 sway = ["swayipc-async", "bridges"]
-quill-niri = ["niri-ipc", "quill-data-provider-lib", "qoms_lib"]
+quill-niri = ["niri-ipc", "quill-data-provider-lib", "qoms_lib", "inotify"]
