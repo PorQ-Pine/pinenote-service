@@ -282,6 +282,8 @@ impl QuillNiriBridge {
                                 .lock()
                                 .await;
                             *older_settings = Default::default();
+                            // Reset windows so it's fresh
+                            self.previous_windows.clear();
                         }
                     }
 
@@ -338,6 +340,13 @@ pub async fn load_settings_internal(username: String) -> bool {
 }
 
 pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
+    let initial_session = find_session().await;
+    println!("Initial session is: {:?}", initial_session);
+    if initial_session.is_none() {
+        eprintln!("Initial session is none, we refuse to run from greetd, no point in this");
+        return Ok(QUILL_NIRI_BRIDGE.into());
+    }
+
     let (enabled_tx, enabled_rx) = mpsc::channel::<bool>(5);
 
     tokio::spawn(async move {
