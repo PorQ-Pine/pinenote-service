@@ -6,12 +6,16 @@ use nix::libc::pid_t;
 use pinenote_service::types::{Rect, rockchip_ebc::Hint};
 use qoms_lib::find_session;
 use quill_data_provider_lib::{
-    Dithering, DriverMode, EinkWindowSetting, RedrawOptions, TresholdLevel, load_settings,
+    Dithering, DriverMode, EinkWindowSetting, PINENOTE_ENABLE_SOCKET, RedrawOptions, TresholdLevel,
+    load_settings,
 };
 use tokio::{
+    fs,
+    io::AsyncReadExt,
+    net::UnixListener,
     sync::{
         Mutex,
-        mpsc::{self, Sender},
+        mpsc::{self, Receiver, Sender},
         oneshot,
     },
     time::sleep,
@@ -29,6 +33,8 @@ pub struct QuillNiriBridge {
     app_meta: HashMap<pid_t, (String, HashSet<i64>)>,
     window_meta: HashMap<i64, (String, NiriWindows)>,
     previous_windows: Vec<NiriWindows>,
+    enabled_rx: Receiver<bool>,
+    enabled: bool,
 }
 
 static SETTINGS: OnceLock<Mutex<Vec<EinkWindowSetting>>> = OnceLock::new();
@@ -36,11 +42,13 @@ static SETTINGS: OnceLock<Mutex<Vec<EinkWindowSetting>>> = OnceLock::new();
 impl QuillNiriBridge {
     const OUTPUT_NAME: &str = "DPI-1";
 
-    pub async fn new() -> Result<Self> {
+    pub async fn new(enabled_rx: Receiver<bool>) -> Result<Self> {
         let bridge = Self {
             app_meta: HashMap::new(),
             window_meta: HashMap::new(),
             previous_windows: Vec::new(),
+            enabled_rx,
+            enabled: true,
         };
         Ok(bridge)
     }
@@ -82,7 +90,7 @@ impl QuillNiriBridge {
             app_key: app_key.clone(),
             title: win.title.clone(),
             area: Rect::from_xywh(
-                (win.geometry.x  as f64 * scale) as i32,
+                (win.geometry.x as f64 * scale) as i32,
                 (win.geometry.y as f64 * scale) as i32,
                 (win.geometry.width as f64 * scale) as i32,
                 (win.geometry.height as f64 * scale) as i32,
@@ -257,23 +265,51 @@ impl QuillNiriBridge {
                 }
             });
 
-            while let Some(event) = evt_rx.recv().await {
-                match event {
-                    Event::WindowsChanged { .. }
-                    | Event::WindowOpenedOrChanged { .. }
-                    | Event::WindowClosed { .. }
-                    | Event::WindowLayoutsChanged { .. }
-                    | Event::WindowFocusChanged { .. }
-                    | Event::WorkspaceActivated { .. } => {
-                        // We clear the channer before running manage so we are sure the windows are in their final destination
-                        sleep(Duration::from_millis(25)).await;
-                        while let Ok(_) = evt_rx.try_recv() {
-                            // Just dropping the events
-                            sleep(Duration::from_millis(25)).await;
+            loop {
+                tokio::select! {
+                    Some(new_state) = self.enabled_rx.recv() => {
+                        println!("Received enabled message");
+                        self.enabled = new_state;
+                        if self.enabled {
+                            self.main_manage(&mut tx).await;
+                        } else {
+                            if let Err(e) = self.remove_all(&mut tx).await {
+                                eprintln!("Failed to remove all apps/windows: {:?}", e);
+                            }
+                            // Reset it so it applies next time
+                            let mut older_settings = GLOBAL_EINK_SETTINGS
+                                .get_or_init(|| Mutex::new(Default::default()))
+                                .lock()
+                                .await;
+                            *older_settings = Default::default();
                         }
-                        self.main_manage(&mut tx).await;
                     }
-                    _ => {}
+
+                    Some(event) = evt_rx.recv() => {
+                        if !self.enabled {
+                            continue;
+                        }
+
+                        match event {
+                            Event::WindowsChanged { .. }
+                            | Event::WindowOpenedOrChanged { .. }
+                            | Event::WindowClosed { .. }
+                            | Event::WindowLayoutsChanged { .. }
+                            | Event::WindowFocusChanged { .. }
+                            | Event::WorkspaceActivated { .. } => {
+                                // Debouncing logic
+                                sleep(Duration::from_millis(25)).await;
+                                while let Ok(_) = evt_rx.try_recv() {
+                                    sleep(Duration::from_millis(25)).await;
+                                }
+
+                                self.main_manage(&mut tx).await;
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    else => break,
                 }
             }
         }
@@ -302,7 +338,38 @@ pub async fn load_settings_internal(username: String) -> bool {
 }
 
 pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
-    let quill_niri_bridge = QuillNiriBridge::new()
+    let (enabled_tx, enabled_rx) = mpsc::channel::<bool>(5);
+
+    tokio::spawn(async move {
+        let _ = fs::remove_file(PINENOTE_ENABLE_SOCKET).await;
+
+        let listener = UnixListener::bind(PINENOTE_ENABLE_SOCKET).expect("Failed to bind socket");
+
+        loop {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let tx_inner = enabled_tx.clone();
+
+                tokio::spawn(async move {
+                    let mut buffer = [0; 16];
+                    if let Ok(n) = stream.read(&mut buffer).await {
+                        let msg = String::from_utf8_lossy(&buffer[..n]).trim().to_lowercase();
+
+                        let val = match msg.as_str() {
+                            "true" => Some(true),
+                            "false" => Some(false),
+                            _ => None,
+                        };
+
+                        if let Some(boolean_flag) = val {
+                            let _ = tx_inner.send(boolean_flag).await;
+                        }
+                    }
+                });
+            }
+        }
+    });
+
+    let quill_niri_bridge = QuillNiriBridge::new(enabled_rx)
         .await
         .context("While trying to start Quill niri bridge")?;
 
@@ -591,7 +658,13 @@ async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool, socket: &mu
                 .ok();
 
             // Save to older settings
-            *older_settings = (treshold, dithering_mode, redraw_options, setting.settings, true);
+            *older_settings = (
+                treshold,
+                dithering_mode,
+                redraw_options,
+                setting.settings,
+                true,
+            );
         }
     }
 
