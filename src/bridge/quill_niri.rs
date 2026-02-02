@@ -79,7 +79,7 @@ impl QuillNiriBridge {
 
     async fn add_window(
         &mut self,
-        win: NiriWindows,
+        win: &NiriWindows,
         app_key: String,
         tx: &mut ebc::CommandSender,
         scale: f64,
@@ -234,7 +234,7 @@ impl QuillNiriBridge {
 
         println!("New niri windows are: {:#?}", new_niri_windows);
 
-        for win in new_niri_windows {
+        for win in &new_niri_windows {
             let pid = win.geometry.id as pid_t;
             match self.add_app(pid, tx).await {
                 Ok(app_key) => {
@@ -246,6 +246,26 @@ impl QuillNiriBridge {
                     eprintln!("Failed to add app: {:?}", e);
                 }
             }
+        }
+
+        if !new_niri_windows.iter().any(|w| w.focused) {
+            eprintln!("No window is focused, restoring defaults");
+            set_global_things(
+                &mut socket,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .await;
+
+            // Set it
+            let mut older_settings = GLOBAL_EINK_SETTINGS
+                .get_or_init(|| Mutex::new(Default::default()))
+                .lock()
+                .await;
+            *older_settings = Default::default();
+            older_settings.4 = true;
         }
         println!("Main manage exit");
     }
@@ -385,10 +405,15 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
         let mut inotify = Inotify::init().expect("Failed to initialize inotify");
         let mut inotify_set = false;
         let mut inotify_descriptors = Vec::new();
+        let mut initial_loop = true;
         loop {
             // println!("Settings watcher loop");
             if let Some((_id, username2)) = find_session().await {
                 if username != username2 || !inotify_set {
+                    if initial_loop {
+                        initial_loop = false;
+                        load_settings_internal(username2.clone()).await; // So it creates the dir, if it's missing
+                    }
                     let path = format!("/home/{}{}", username2, WINDOW_SETTINGS_HOME_CONFIG_DIR);
 
                     for desc in inotify_descriptors.drain(..) {
@@ -399,11 +424,13 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
                         Ok(descriptor) => {
                             inotify_descriptors.push(descriptor);
                             inotify_set = true;
-                            username = username2;
-                            load_settings_internal(username.clone()).await;
+                            username = username2.clone();
+                            load_settings_internal(username2.clone()).await;
                             println!("Inotify set!");
                         }
-                        Err(err) => eprintln!("Inotify failed for path: {}, error is: {:?}", path, err),
+                        Err(err) => {
+                            eprintln!("Inotify failed for path: {}, error is: {:?}", path, err)
+                        }
                     }
                 }
             } else {
@@ -635,20 +662,14 @@ async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool, socket: &mu
             || is_different_settings
             || !older_settings.4
         {
-            treshold.set().await;
-            dithering_mode.set().await;
-            redraw_options.set().await;
-            setting.settings.set().await; // Sets normal or fast globally based on this focused window settings
-            // Now we need to "rewrite" things on the screen
-            // Hacky but whatever
-            sleep(Duration::from_millis(25)).await;
-            socket
-                .send(Request::Action(niri_ipc::Action::ToggleDebugTint {}))
-                .ok();
-            sleep(Duration::from_millis(10)).await;
-            socket
-                .send(Request::Action(niri_ipc::Action::ToggleDebugTint {}))
-                .ok();
+            set_global_things(
+                socket,
+                &treshold,
+                &dithering_mode,
+                &redraw_options,
+                &setting.settings,
+            )
+            .await;
 
             // Save to older settings
             *older_settings = (
@@ -662,4 +683,28 @@ async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool, socket: &mu
     }
 
     hint
+}
+
+pub async fn set_global_things(
+    socket: &mut Socket,
+    threshold: &ThresholdLevel,
+    dithering_mode: &Dithering,
+    redraw_options: &RedrawOptions,
+    driver_mode: &DriverMode,
+) {
+    threshold.set().await;
+    dithering_mode.set().await;
+    redraw_options.set().await;
+    driver_mode.set().await; // Sets normal or fast globally based on this focused window settings
+
+    // Now we need to "rewrite" things on the screen
+    // Hacky but whatever
+    sleep(Duration::from_millis(25)).await;
+    socket
+        .send(Request::Action(niri_ipc::Action::ToggleDebugTint {}))
+        .ok();
+    sleep(Duration::from_millis(10)).await;
+    socket
+        .send(Request::Action(niri_ipc::Action::ToggleDebugTint {}))
+        .ok();
 }
