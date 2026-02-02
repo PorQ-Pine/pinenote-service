@@ -6,8 +6,7 @@ use nix::libc::pid_t;
 use pinenote_service::types::{Rect, rockchip_ebc::Hint};
 use qoms_lib::find_session;
 use quill_data_provider_lib::{
-    Dithering, DriverMode, EinkWindowSetting, PINENOTE_ENABLE_SOCKET, RedrawOptions, TresholdLevel,
-    load_window_settings,
+    Dithering, DriverMode, EinkWindowSetting, PINENOTE_ENABLE_SOCKET, RedrawOptions, ThresholdLevel, load_window_settings
 };
 use tokio::{
     fs,
@@ -321,23 +320,12 @@ impl QuillNiriBridge {
     }
 }
 
-pub async fn load_settings_internal(username: String) -> bool {
+pub async fn load_settings_internal(username: String) {
     println!("Reading settings...");
     let path = format!("/home/{}/.config/eink_window_settings/config.ron", username);
-    let settings = match load_window_settings(path) {
-        Ok(settings) => settings,
-        Err(err) => {
-            eprintln!("Load settings internal failed: {:?}", err);
-            return false;
-        }
-    };
-    println!(
-        "Readed settings succesfully for username: {}",
-        username.clone()
-    );
+    let settings = load_window_settings(path);
     let mut guard = SETTINGS.get_or_init(|| Mutex::new(Vec::new())).lock().await;
     *guard = settings;
-    true
 }
 
 pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
@@ -385,10 +373,8 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
 
     tokio::spawn(async move {
         println!("Settings watcher init");
-        const SHORT_DELAY: Duration = Duration::from_secs(1);
-        const LONG_DELAY: Duration = Duration::from_secs(5);
+        const DELAY: Duration = Duration::from_secs(3);
         SETTINGS.get_or_init(|| Mutex::new(Vec::new()));
-        let mut delay = SHORT_DELAY;
         let mut username = "".to_string();
         let mut inotify = Inotify::init().expect("Failed to initialize inotify");
         let mut inotify_set = false;
@@ -408,11 +394,7 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
                             inotify_descriptors.push(descriptor);
                             inotify_set = true;
                             username = username2;
-                            if load_settings_internal(username.clone()).await {
-                                delay = LONG_DELAY;
-                            } else {
-                                delay = SHORT_DELAY;
-                            }
+                            load_settings_internal(username.clone()).await;
                             println!("Inotify set!");
                         }
                         Err(err) => eprintln!("Inotify failed: {:?}", err),
@@ -429,11 +411,7 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
                     match inotify.read_events(&mut buffer) {
                         Ok(_) => {
                             if !readed_settings {
-                                if load_settings_internal(username.clone()).await {
-                                    delay = LONG_DELAY;
-                                } else {
-                                    delay = SHORT_DELAY;
-                                }
+                                load_settings_internal(username.clone()).await;
                                 readed_settings = true;
                             }
                         }
@@ -449,8 +427,7 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
                 }
             }
 
-            // println!("Delay in watcher lopp... {:?}", delay);
-            sleep(delay).await;
+            sleep(DELAY).await;
         }
     });
 
@@ -577,13 +554,13 @@ where
 // Globals bad, but if I need to pass an argument though 3 functions for no reason only for checking if something changed, uh, let me commit this sin then
 // Last bool is for initial applying
 static GLOBAL_EINK_SETTINGS: OnceLock<
-    Mutex<(TresholdLevel, Dithering, RedrawOptions, DriverMode, bool)>,
+    Mutex<(ThresholdLevel, Dithering, RedrawOptions, DriverMode, bool)>,
 > = OnceLock::new();
 async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool, socket: &mut Socket) -> Hint {
     use pinenote_service::types::rockchip_ebc::{HintBitDepth, HintConvertMode};
     use quill_data_provider_lib::{BitDepth, Conversion, DriverMode, Redraw};
 
-    let mut treshold: TresholdLevel = Default::default();
+    let mut treshold: ThresholdLevel = Default::default();
     let mut dithering_mode: Dithering = Default::default();
     let mut redraw_options: RedrawOptions = Default::default();
 
@@ -591,7 +568,7 @@ async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool, socket: &mu
         DriverMode::Normal(bit_depth) => match bit_depth {
             BitDepth::Y1(conv, level) => {
                 let cm = match conv {
-                    Conversion::Tresholding => {
+                    Conversion::Thresholding => {
                         treshold = *level;
                         HintConvertMode::Threshold
                     }
@@ -604,7 +581,7 @@ async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool, socket: &mu
             }
             BitDepth::Y2(conv, redraw) => {
                 let cm = match conv {
-                    Conversion::Tresholding => HintConvertMode::Threshold,
+                    Conversion::Thresholding => HintConvertMode::Threshold,
                     Conversion::Dithering(mode) => {
                         dithering_mode = *mode;
                         HintConvertMode::Dither
