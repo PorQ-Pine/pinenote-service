@@ -6,7 +6,7 @@ use nix::libc::pid_t;
 use pinenote_service::types::{Rect, rockchip_ebc::Hint};
 use qoms_lib::find_session;
 use quill_data_provider_lib::{
-    Dithering, DriverMode, EinkWindowSetting, PINENOTE_ENABLE_SOCKET, RedrawOptions, ThresholdLevel, load_window_settings
+    Dithering, DriverMode, EinkWindowSetting, PINENOTE_ENABLE_SOCKET, RedrawOptions, ThresholdLevel, WINDOW_SETTINGS_CONFIG_NAME, WINDOW_SETTINGS_HOME_CONFIG_DIR, load_window_settings
 };
 use tokio::{
     fs,
@@ -322,7 +322,7 @@ impl QuillNiriBridge {
 
 pub async fn load_settings_internal(username: String) {
     println!("Reading settings...");
-    let path = format!("/home/{}/.config/eink_window_settings/config.ron", username);
+    let path = format!("/home/{}{}{}", username, WINDOW_SETTINGS_HOME_CONFIG_DIR, WINDOW_SETTINGS_CONFIG_NAME);
     let settings = load_window_settings(path);
     let mut guard = SETTINGS.get_or_init(|| Mutex::new(Vec::new())).lock().await;
     *guard = settings;
