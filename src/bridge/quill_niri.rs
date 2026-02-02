@@ -329,6 +329,7 @@ pub async fn load_settings_internal(username: String) {
         username, WINDOW_SETTINGS_HOME_CONFIG_DIR, WINDOW_SETTINGS_CONFIG_NAME
     );
     let settings = load_window_settings(path);
+    println!("Got window settings: {:?}", settings);
     let mut guard = SETTINGS.get_or_init(|| Mutex::new(Vec::new())).lock().await;
     *guard = settings;
 }
@@ -388,13 +389,13 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
             // println!("Settings watcher loop");
             if let Some((_id, username2)) = find_session().await {
                 if username != username2 || !inotify_set {
-                    let path = format!("/home/{}{}", username, WINDOW_SETTINGS_HOME_CONFIG_DIR);
+                    let path = format!("/home/{}{}", username2, WINDOW_SETTINGS_HOME_CONFIG_DIR);
 
                     for desc in inotify_descriptors.drain(..) {
                         let _ = inotify.watches().remove(desc);
                     }
 
-                    match inotify.watches().add(path, WatchMask::ALL_EVENTS) {
+                    match inotify.watches().add(&path, WatchMask::ALL_EVENTS) {
                         Ok(descriptor) => {
                             inotify_descriptors.push(descriptor);
                             inotify_set = true;
@@ -402,7 +403,7 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
                             load_settings_internal(username.clone()).await;
                             println!("Inotify set!");
                         }
-                        Err(err) => eprintln!("Inotify failed: {:?}", err),
+                        Err(err) => eprintln!("Inotify failed for path: {}, error is: {:?}", path, err),
                     }
                 }
             } else {
