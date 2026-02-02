@@ -6,7 +6,9 @@ use nix::libc::pid_t;
 use pinenote_service::types::{Rect, rockchip_ebc::Hint};
 use qoms_lib::find_session;
 use quill_data_provider_lib::{
-    Dithering, DriverMode, EinkWindowSetting, PINENOTE_ENABLE_SOCKET, RedrawOptions, ThresholdLevel, WINDOW_SETTINGS_CONFIG_NAME, WINDOW_SETTINGS_HOME_CONFIG_DIR, load_window_settings
+    Dithering, DriverMode, EinkWindowSetting, PINENOTE_ENABLE_SOCKET, RedrawOptions,
+    ThresholdLevel, WINDOW_SETTINGS_CONFIG_NAME, WINDOW_SETTINGS_HOME_CONFIG_DIR,
+    load_window_settings,
 };
 use tokio::{
     fs,
@@ -322,7 +324,10 @@ impl QuillNiriBridge {
 
 pub async fn load_settings_internal(username: String) {
     println!("Reading settings...");
-    let path = format!("/home/{}{}{}", username, WINDOW_SETTINGS_HOME_CONFIG_DIR, WINDOW_SETTINGS_CONFIG_NAME);
+    let path = format!(
+        "/home/{}{}{}",
+        username, WINDOW_SETTINGS_HOME_CONFIG_DIR, WINDOW_SETTINGS_CONFIG_NAME
+    );
     let settings = load_window_settings(path);
     let mut guard = SETTINGS.get_or_init(|| Mutex::new(Vec::new())).lock().await;
     *guard = settings;
@@ -383,7 +388,7 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
             // println!("Settings watcher loop");
             if let Some((_id, username2)) = find_session().await {
                 if username != username2 || !inotify_set {
-                    let path = format!("/home/{}/.config/eink_window_settings/", username2);
+                    let path = format!("/home/{}{}", username, WINDOW_SETTINGS_HOME_CONFIG_DIR);
 
                     for desc in inotify_descriptors.drain(..) {
                         let _ = inotify.watches().remove(desc);
