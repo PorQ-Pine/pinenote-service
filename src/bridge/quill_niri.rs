@@ -7,7 +7,7 @@ use pinenote_service::types::{Rect, rockchip_ebc::Hint};
 use qoms_lib::find_session;
 use quill_data_provider_lib::{
     Dithering, DriverMode, EinkWindowSetting, PINENOTE_ENABLE_SOCKET, RedrawOptions, TresholdLevel,
-    load_settings,
+    load_window_settings,
 };
 use tokio::{
     fs,
@@ -323,7 +323,8 @@ impl QuillNiriBridge {
 
 pub async fn load_settings_internal(username: String) -> bool {
     println!("Reading settings...");
-    let settings = match load_settings(username.clone()) {
+    let path = format!("/home/{}/.config/eink_window_settings/config.ron", username);
+    let settings = match load_window_settings(path) {
         Ok(settings) => settings,
         Err(err) => {
             eprintln!("Load settings internal failed: {:?}", err);
