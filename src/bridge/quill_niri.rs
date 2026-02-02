@@ -4,6 +4,7 @@ use inotify::{Inotify, WatchMask};
 use niri_ipc::{Event, Request, Response, WindowGeometry, socket::Socket};
 use nix::libc::pid_t;
 use pinenote_service::types::{Rect, rockchip_ebc::Hint};
+use log::{debug, error, info, warn};
 use qoms_lib::find_session;
 use quill_data_provider_lib::{
     Dithering, DriverMode, EinkWindowSetting, PINENOTE_ENABLE_SOCKET, RedrawOptions,
@@ -121,11 +122,11 @@ impl QuillNiriBridge {
 
     pub async fn main_manage(&mut self, tx: &mut ebc::CommandSender) {
         if let Err(e) = self.remove_all(tx).await {
-            eprintln!("Failed to remove all apps/windows: {:?}", e);
+            error!("Failed to remove all apps/windows: {:?}", e);
         }
 
         let mut socket = get_socket().await;
-        println!("Requesting windows");
+        debug!("Requesting windows");
 
         let Some(windows_regular) = try_fetch(&mut socket, Request::Windows, |r| match r {
             Response::Windows(w) => Some(w),
@@ -156,7 +157,7 @@ impl QuillNiriBridge {
             let output = match outputs.get(Self::OUTPUT_NAME) {
                 Some(o) => o,
                 None => {
-                    eprintln!("Error: Output '{}' not found.", Self::OUTPUT_NAME);
+                    error!("Error: Output '{}' not found.", Self::OUTPUT_NAME);
                     return;
                 }
             };
@@ -168,7 +169,7 @@ impl QuillNiriBridge {
                     logical_mode.scale,
                 ),
                 None => {
-                    eprintln!("No logical screen info");
+                    error!("No logical screen info");
                     return;
                 }
             }
@@ -225,31 +226,31 @@ impl QuillNiriBridge {
         windows_on_screen(&mut new_niri_windows, screen_w, screen_h);
 
         if self.previous_windows == new_niri_windows {
-            println!("Windows did not change, not doing anything");
+            debug!("Windows did not change, not doing anything");
             return;
         } else {
-            println!("Windows changed, updating things");
+            debug!("Windows changed, updating things");
             self.previous_windows = new_niri_windows.clone();
         }
 
-        println!("New niri windows are: {:#?}", new_niri_windows);
+        debug!("New niri windows are: {:#?}", new_niri_windows);
 
         for win in &new_niri_windows {
             let pid = win.geometry.id as pid_t;
             match self.add_app(pid, tx).await {
                 Ok(app_key) => {
                     if let Err(e) = self.add_window(win, app_key, tx, scale, &mut socket).await {
-                        eprintln!("Failed to add window: {:?}", e);
+                        error!("Failed to add window: {:?}", e);
                     }
                 }
                 Err(e) => {
-                    eprintln!("Failed to add app: {:?}", e);
+                    error!("Failed to add app: {:?}", e);
                 }
             }
         }
 
         if !new_niri_windows.iter().any(|w| w.focused) {
-            eprintln!("No window is focused, restoring defaults");
+            warn!("No window is focused, restoring defaults");
             set_global_things(
                 &mut socket,
                 &Default::default(),
@@ -267,11 +268,11 @@ impl QuillNiriBridge {
             *older_settings = Default::default();
             older_settings.4 = true;
         }
-        println!("Main manage exit");
+        debug!("Main manage exit");
     }
 
     pub async fn run(mut self, tx: Sender<ebc::Command>) -> Result<()> {
-        println!("Bridge niri started");
+        info!("Bridge niri started");
         let mut socket = get_socket().await;
         let mut tx: CommandSender = tx.into();
 
@@ -289,13 +290,13 @@ impl QuillNiriBridge {
             loop {
                 tokio::select! {
                     Some(new_state) = self.enabled_rx.recv() => {
-                        println!("Received enabled message");
+                        debug!("Received enabled message");
                         self.enabled = new_state;
                         if self.enabled {
                             self.main_manage(&mut tx).await;
                         } else {
                             if let Err(e) = self.remove_all(&mut tx).await {
-                                eprintln!("Failed to remove all apps/windows: {:?}", e);
+                                error!("Failed to remove all apps/windows: {:?}", e);
                             }
                             // Reset it so it applies next time
                             let mut older_settings = GLOBAL_EINK_SETTINGS
@@ -337,28 +338,28 @@ impl QuillNiriBridge {
             }
         }
 
-        eprintln!("Quill niri bridge ended");
+        info!("Quill niri bridge ended");
         Ok(())
     }
 }
 
 pub async fn load_settings_internal(username: String) {
-    println!("Reading settings...");
+    debug!("Reading settings...");
     let path = format!(
         "/home/{}{}{}",
         username, WINDOW_SETTINGS_HOME_CONFIG_DIR, WINDOW_SETTINGS_CONFIG_NAME
     );
     let settings = load_window_settings(path);
-    println!("Got window settings: {:?}", settings);
+    debug!("Got window settings: {:?}", settings);
     let mut guard = SETTINGS.get_or_init(|| Mutex::new(Vec::new())).lock().await;
     *guard = settings;
 }
 
 pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
     let initial_session = find_session().await;
-    println!("Initial session is: {:?}", initial_session);
+    debug!("Initial session is: {:?}", initial_session);
     if initial_session.is_none() {
-        eprintln!("Initial session is none, we refuse to run from greetd, no point in this");
+        warn!("Initial session is none, we refuse to run from greetd, no point in this");
         return Ok(QUILL_NIRI_BRIDGE.into());
     }
 
@@ -398,7 +399,7 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
         .context("While trying to start Quill niri bridge")?;
 
     tokio::spawn(async move {
-        println!("Settings watcher init");
+        debug!("Settings watcher init");
         const DELAY: Duration = Duration::from_secs(3);
         SETTINGS.get_or_init(|| Mutex::new(Vec::new()));
         let mut username = "".to_string();
@@ -407,7 +408,6 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
         let mut inotify_descriptors = Vec::new();
         let mut initial_loop = true;
         loop {
-            // println!("Settings watcher loop");
             if let Some((_id, username2)) = find_session().await {
                 if username != username2 || !inotify_set {
                     if initial_loop {
@@ -426,15 +426,15 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
                             inotify_set = true;
                             username = username2.clone();
                             load_settings_internal(username2.clone()).await;
-                            println!("Inotify set!");
+                            info!("Inotify set!");
                         }
                         Err(err) => {
-                            eprintln!("Inotify failed for path: {}, error is: {:?}", path, err)
+                            error!("Inotify failed for path: {}, error is: {:?}", path, err)
                         }
                     }
                 }
             } else {
-                eprintln!("Failed to get session");
+                warn!("Failed to get session");
             }
 
             if inotify_set {
@@ -452,7 +452,7 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
                             if e.kind() == std::io::ErrorKind::WouldBlock {
                                 break;
                             }
-                            eprintln!("Inotify failed: {:?}", e);
+                            error!("Inotify failed: {:?}", e);
                             inotify_set = false;
                             break;
                         }
@@ -506,7 +506,7 @@ async fn get_socket() -> Socket {
 
         // 4. Wait a second before re-scanning the filesystem
         tokio::time::sleep(Duration::from_secs(1)).await;
-        eprintln!("Waiting for niri socket...");
+        warn!("Waiting for niri socket...");
     }
 }
 
@@ -574,11 +574,11 @@ where
 {
     match socket.send(req).unwrap() {
         Ok(res) => extract(res).or_else(|| {
-            eprintln!("Error: Received unexpected response variant.");
+            error!("Error: Received unexpected response variant.");
             None
         }),
         Err(e) => {
-            eprintln!("Error: Failed to get reply: {:?}", e);
+            error!("Error: Failed to get reply: {:?}", e);
             None
         }
     }

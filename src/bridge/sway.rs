@@ -8,6 +8,7 @@ use futures_lite::stream::StreamExt;
 use nalgebra::Matrix3;
 use nix::libc::pid_t;
 use pinenote_service::types::{Rect, rockchip_ebc::Hint};
+use log::{error, warn};
 use swayipc_async::{
     Connection, Event, EventStream, EventType, Node, NodeBorder, NodeType, Rect as SwayRect,
 };
@@ -375,7 +376,7 @@ impl SwayBridge {
                     .await
                     .context("Failed to process_tree")
                 {
-                    eprintln!("{e:?}");
+                    error!("{e:?}");
                 };
                 process_tree = false;
             }
@@ -400,7 +401,7 @@ impl SwayBridge {
                                 }
                                 Err(e) => {
                                     self.transform = Matrix3::identity();
-                                    eprintln!("{e:#?}");
+                                    error!("{e:#?}");
                                 }
                             }
                             process_tree = true;
@@ -412,13 +413,13 @@ impl SwayBridge {
                     }
                 }
                 Ok(None) => {
-                    eprintln!("SwayIPC EventStream is done");
+                    warn!("SwayIPC EventStream is done");
                     break;
                 }
             }
         }
 
-        eprintln!("Implement proper exit");
+        warn!("Implement proper exit");
 
         Ok(())
     }

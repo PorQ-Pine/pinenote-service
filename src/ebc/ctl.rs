@@ -1,4 +1,5 @@
 use std::{io::Write, path::PathBuf, time::SystemTime};
+use log::error;
 
 use anyhow::{Context, Result, anyhow};
 use pinenote_service::{
@@ -357,7 +358,7 @@ impl Ctl {
                         .await
                         .context("Failed to dump framebuffers")
                     {
-                        eprintln!("{:#?}", e);
+                        error!("{:#?}", e);
                     }
                 });
             }
@@ -392,7 +393,7 @@ impl Ctl {
                 .await
                 .with_context(|| format!("While handling {ctx}"))
             {
-                eprintln!("{e:?}")
+                error!("{e:?}")
             }
         }
     }

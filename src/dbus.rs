@@ -1,6 +1,7 @@
 use anyhow::Result;
 use tokio::sync::mpsc;
 use zbus::{connection, fdo};
+use log::error;
 
 use crate::ebc;
 
@@ -11,7 +12,7 @@ pub struct Context {
 }
 
 fn internal_error(e: anyhow::Error) -> fdo::Error {
-    eprintln!("{e:#?}");
+    error!("{e:#?}");
     fdo::Error::Failed("Internal error".into())
 }
 

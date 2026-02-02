@@ -1,9 +1,11 @@
 use anyhow::Result;
 use tokio::{signal, sync::mpsc};
+use log::{debug, error};
 
 #[cfg(feature = "bridges")]
 pub mod bridge {
     use tokio::sync::mpsc;
+    use log::error;
 
     use crate::ebc;
 
@@ -31,7 +33,7 @@ pub mod bridge {
         match res {
             Ok(s) => Some(s),
             Err(e) => {
-                eprintln!("{e:#?}");
+                error!("{e:#?}");
                 None
             }
         }
@@ -49,6 +51,7 @@ pub mod ebc {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    env_logger::init();
     let (tx, rx) = mpsc::channel(100);
     let mut ebc = ebc::Ctl::new()?;
 
@@ -63,12 +66,12 @@ async fn main() -> Result<()> {
 
     let _dbus_ctx = dbus::Context::initialize(tx.clone(), selected_bridge).await?;
 
-    println!("Started?");
+    debug!("Started?");
 
     match signal::ctrl_c().await {
         Ok(()) => {}
         Err(err) => {
-            eprintln!("Unable to listen for shutdown signal: {}", err);
+            error!("Unable to listen for shutdown signal: {}", err);
         }
     };
 

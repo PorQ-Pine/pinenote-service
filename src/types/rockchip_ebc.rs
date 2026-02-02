@@ -9,6 +9,7 @@ use std::{
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
 use zbus::zvariant::{Type, Value};
+use log::warn;
 
 use crate::ioctls::{self, drm};
 
@@ -233,7 +234,7 @@ impl From<ioctls::rockchip_ebc::Mode> for Mode {
         let driver_mode = match DriverMode::try_from_primitive(value.driver_mode) {
             Ok(driver) => Some(driver),
             Err(e) => {
-                eprintln!("Bad driver mode '{}': {:?}", value.driver_mode, e);
+                warn!("Bad driver mode '{}': {:?}", value.driver_mode, e);
                 None
             }
         };
@@ -241,7 +242,7 @@ impl From<ioctls::rockchip_ebc::Mode> for Mode {
         let dither_mode = match DitherMode::try_from_primitive(value.dither_mode) {
             Ok(dither) => Some(dither),
             Err(e) => {
-                eprintln!("Bad dithering mode '{}': {:?}", value.dither_mode, e);
+                warn!("Bad dithering mode '{}': {:?}", value.dither_mode, e);
                 None
             }
         };
