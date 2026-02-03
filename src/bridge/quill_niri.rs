@@ -1,10 +1,10 @@
 use crate::ebc::{self, CommandSender};
 use anyhow::{Context, Result};
 use inotify::{Inotify, WatchMask};
+use log::{debug, error, info, warn};
 use niri_ipc::{Event, Request, Response, WindowGeometry, socket::Socket};
 use nix::libc::pid_t;
 use pinenote_service::types::{Rect, rockchip_ebc::Hint};
-use log::{debug, error, info, warn};
 use qoms_lib::find_session;
 use quill_data_provider_lib::{
     Dithering, DriverMode, EinkWindowSetting, PINENOTE_ENABLE_SOCKET, RedrawOptions,
@@ -37,6 +37,7 @@ pub struct QuillNiriBridge {
     previous_windows: Vec<NiriWindows>,
     enabled_rx: Receiver<bool>,
     enabled: bool,
+    is_overview: bool,
 }
 
 static SETTINGS: OnceLock<Mutex<Vec<EinkWindowSetting>>> = OnceLock::new();
@@ -51,6 +52,7 @@ impl QuillNiriBridge {
             previous_windows: Vec::new(),
             enabled_rx,
             enabled: true,
+            is_overview: false,
         };
         Ok(bridge)
     }
@@ -261,10 +263,7 @@ impl QuillNiriBridge {
             .await;
 
             // Set it
-            let mut older_settings = GLOBAL_EINK_SETTINGS
-                .get_or_init(|| Mutex::new(Default::default()))
-                .lock()
-                .await;
+            let mut older_settings = get_global_settings().await;
             *older_settings = Default::default();
             older_settings.4 = true;
         }
@@ -299,10 +298,7 @@ impl QuillNiriBridge {
                                 error!("Failed to remove all apps/windows: {:?}", e);
                             }
                             // Reset it so it applies next time
-                            let mut older_settings = GLOBAL_EINK_SETTINGS
-                                .get_or_init(|| Mutex::new(Default::default()))
-                                .lock()
-                                .await;
+                            let mut older_settings = get_global_settings().await;
                             *older_settings = Default::default();
                             // Reset windows so it's fresh
                             self.previous_windows.clear();
@@ -321,13 +317,28 @@ impl QuillNiriBridge {
                             | Event::WindowLayoutsChanged { .. }
                             | Event::WindowFocusChanged { .. }
                             | Event::WorkspaceActivated { .. } => {
-                                // Debouncing logic
+                                if self.is_overview {
+                                    continue;
+                                }
+                                // Debouncing logic, which doesn't ignore overview
+                                let mut overview_happened = false;
                                 sleep(Duration::from_millis(25)).await;
-                                while let Ok(_) = evt_rx.try_recv() {
+                                while let Ok(event) = evt_rx.try_recv() {
+                                    if let Event::OverviewOpenedOrClosed { is_open } = event {
+                                        overview_happened = true;
+                                        self.manage_overview(&mut tx, is_open).await;
+                                        break;
+                                    }
                                     sleep(Duration::from_millis(25)).await;
+                                }
+                                if overview_happened {
+                                    continue;
                                 }
 
                                 self.main_manage(&mut tx).await;
+                            }
+                            Event::OverviewOpenedOrClosed{is_open} => {
+                                self.manage_overview(&mut tx, is_open).await;
                             }
                             _ => {}
                         }
@@ -340,6 +351,36 @@ impl QuillNiriBridge {
 
         info!("Quill niri bridge ended");
         Ok(())
+    }
+
+    pub async fn manage_overview(&mut self, tx: &mut CommandSender, is_open: bool) {
+        self.is_overview = is_open;
+        debug!("Overview is: {}", self.is_overview);
+        if self.is_overview {
+            let driver_mode = DriverMode::Fast(Default::default());
+            let mut new_socket = get_socket().await;
+            set_global_things(
+                &mut new_socket,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+                &driver_mode,
+            )
+            .await;
+            let mut older_settings = get_global_settings().await;
+            *older_settings = (
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                driver_mode,
+                true,
+            );
+        } else {
+            // Restore
+            // To make sure it closed
+            sleep(Duration::from_millis(250)).await;
+            self.main_manage(tx).await;
+        }
     }
 }
 
@@ -400,7 +441,7 @@ pub async fn start(tx: mpsc::Sender<ebc::Command>) -> Result<String> {
 
     tokio::spawn(async move {
         debug!("Settings watcher init");
-        const DELAY: Duration = Duration::from_secs(3);
+        const DELAY: Duration = Duration::from_secs(5);
         SETTINGS.get_or_init(|| Mutex::new(Vec::new()));
         let mut username = "".to_string();
         let mut inotify = Inotify::init().expect("Failed to initialize inotify");
@@ -589,6 +630,15 @@ where
 static GLOBAL_EINK_SETTINGS: OnceLock<
     Mutex<(ThresholdLevel, Dithering, RedrawOptions, DriverMode, bool)>,
 > = OnceLock::new();
+
+async fn get_global_settings()
+-> tokio::sync::MutexGuard<'static, (ThresholdLevel, Dithering, RedrawOptions, DriverMode, bool)> {
+    GLOBAL_EINK_SETTINGS
+        .get_or_init(|| Mutex::new(Default::default()))
+        .lock()
+        .await
+}
+
 async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool, socket: &mut Socket) -> Hint {
     use pinenote_service::types::rockchip_ebc::{HintBitDepth, HintConvertMode};
     use quill_data_provider_lib::{BitDepth, Conversion, DriverMode, Redraw};
@@ -647,10 +697,7 @@ async fn setting_to_hint(setting: &EinkWindowSetting, focused: bool, socket: &mu
     };
 
     if focused {
-        let mut older_settings = GLOBAL_EINK_SETTINGS
-            .get_or_init(|| Mutex::new(Default::default()))
-            .lock()
-            .await;
+        let mut older_settings = get_global_settings().await;
         let is_different_settings = match (&older_settings.3, &setting.settings) {
             (DriverMode::Normal(_), DriverMode::Fast(_)) => true,
             (DriverMode::Fast(_), DriverMode::Normal(_)) => true,
