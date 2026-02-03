@@ -288,64 +288,57 @@ impl QuillNiriBridge {
 
             loop {
                 tokio::select! {
-                    Some(new_state) = self.enabled_rx.recv() => {
-                        debug!("Received enabled message");
-                        self.enabled = new_state;
-                        if self.enabled {
-                            self.main_manage(&mut tx).await;
-                        } else {
-                            if let Err(e) = self.remove_all(&mut tx).await {
-                                error!("Failed to remove all apps/windows: {:?}", e);
-                            }
-                            // Reset it so it applies next time
-                            let mut older_settings = get_global_settings().await;
-                            *older_settings = Default::default();
-                            // Reset windows so it's fresh
-                            self.previous_windows.clear();
-                        }
-                    }
-
-                    Some(event) = evt_rx.recv() => {
-                        if !self.enabled {
-                            continue;
-                        }
-
-                        match event {
-                            Event::WindowsChanged { .. }
-                            | Event::WindowOpenedOrChanged { .. }
-                            | Event::WindowClosed { .. }
-                            | Event::WindowLayoutsChanged { .. }
-                            | Event::WindowFocusChanged { .. }
-                            | Event::WorkspaceActivated { .. } => {
-                                if self.is_overview {
-                                    continue;
-                                }
-                                // Debouncing logic, which doesn't ignore overview
-                                let mut overview_happened = false;
-                                sleep(Duration::from_millis(25)).await;
-                                while let Ok(event) = evt_rx.try_recv() {
-                                    if let Event::OverviewOpenedOrClosed { is_open } = event {
-                                        overview_happened = true;
-                                        self.manage_overview(&mut tx, is_open).await;
-                                        break;
+                                    Some(new_state) = self.enabled_rx.recv() => {
+                                        debug!("Received enabled message");
+                                        self.enabled = new_state;
+                                        if self.enabled {
+                                            self.main_manage(&mut tx).await;
+                                        } else {
+                                            self.reset_everything(&mut tx).await;
+                                        }
                                     }
-                                    sleep(Duration::from_millis(25)).await;
-                                }
-                                if overview_happened {
-                                    continue;
-                                }
 
-                                self.main_manage(&mut tx).await;
-                            }
-                            Event::OverviewOpenedOrClosed{is_open} => {
-                                self.manage_overview(&mut tx, is_open).await;
-                            }
-                            _ => {}
-                        }
-                    }
+                                    Some(event) = evt_rx.recv() => {
+                                        if !self.enabled {
+                                            continue;
+                                        }
 
-                    else => break,
-                }
+                                        match event {
+                                            Event::WindowsChanged { .. }
+                                            | Event::WindowOpenedOrChanged { .. }
+                                            | Event::WindowClosed { .. }
+                                            | Event::WindowLayoutsChanged { .. }
+                                            | Event::WindowFocusChanged { .. }
+                                            | Event::WorkspaceActivated { .. } => {
+                                                if self.is_overview {
+                                                    continue;
+                                                }
+                                                // Debouncing logic, which doesn't ignore overview
+                                                let mut overview_happened = false;
+                                                sleep(Duration::from_millis(25)).await;
+                                                while let Ok(event) = evt_rx.try_recv() {
+                                                    if let Event::OverviewOpenedOrClosed { is_open } = event {
+                                                        overview_happened = true;
+                                                        self.manage_overview(&mut tx, is_open).await;
+                                                        break;
+                                                    }
+                                                    sleep(Duration::from_millis(25)).await;
+                                                }
+                                                if overview_happened {
+                                                    continue;
+                                                }
+
+                                                self.main_manage(&mut tx).await;
+                                            }
+                                            Event::OverviewOpenedOrClosed{is_open} => {
+                                                self.manage_overview(&mut tx, is_open).await;
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+
+                                    else => break,
+                                }
             }
         }
 
@@ -353,12 +346,24 @@ impl QuillNiriBridge {
         Ok(())
     }
 
+    pub async fn reset_everything(&mut self, tx: &mut CommandSender) {
+        if let Err(e) = self.remove_all(tx).await {
+            error!("Failed to remove all apps/windows: {:?}", e);
+        }
+        // Reset it so it applies next time
+        let mut older_settings = get_global_settings().await;
+        *older_settings = Default::default();
+        // Reset windows so it's fresh
+        self.previous_windows.clear();
+    }
+
     pub async fn manage_overview(&mut self, tx: &mut CommandSender, is_open: bool) {
         self.is_overview = is_open;
         debug!("Overview is: {}", self.is_overview);
+        let mut new_socket = get_socket().await;
         if self.is_overview {
+            self.reset_everything(tx).await;
             let driver_mode = DriverMode::Fast(Default::default());
-            let mut new_socket = get_socket().await;
             set_global_things(
                 &mut new_socket,
                 &Default::default(),
@@ -367,18 +372,18 @@ impl QuillNiriBridge {
                 &driver_mode,
             )
             .await;
-            let mut older_settings = get_global_settings().await;
-            *older_settings = (
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                driver_mode,
-                true,
-            );
         } else {
             // Restore
             // To make sure it closed
-            sleep(Duration::from_millis(250)).await;
+            sleep(Duration::from_millis(300)).await;
+            set_global_things(
+                &mut new_socket,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .await;
             self.main_manage(tx).await;
         }
     }
